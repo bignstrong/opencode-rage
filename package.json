@@ -1,6 +1,6 @@
 {
   "name": "@bignstrong/rage",
-  "version": "0.5.0",
+  "version": "0.1.0",
   "description": "Local dictation for OpenCode with a Rust core on macOS",
   "type": "module",
   "license": "MIT",
