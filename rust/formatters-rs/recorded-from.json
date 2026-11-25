@@ -1,0 +1,17 @@
+{
+  "unit": "src/formatters.ts",
+  "files": 1,
+  "fingerprint": "cc88d8af196ef3c9",
+  "coverage": {
+    "lines": 26,
+    "reached": 26,
+    "files": [
+      {
+        "file": "src/formatters.ts",
+        "lines": 26,
+        "reached": 26,
+        "missed": ""
+      }
+    ]
+  }
+}

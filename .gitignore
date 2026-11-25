@@ -1,0 +1,26 @@
+node_modules/
+dist/
+coverage/
+.codegraph/
+.env
+.env.*
+*.log
+
+# Local model/runtime artifacts
+models/
+*.partial
+*.wav
+*.mp3
+*.flac
+
+# Native sidecar build output
+**/target/
+*.node
+native/rage.node.tmp
+/rage/core.js
+/src/native-runtime.js
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/

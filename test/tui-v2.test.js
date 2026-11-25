@@ -1,0 +1,801 @@
+import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { registerHooks } from "node:module";
+import test from "node:test";
+import { DEFAULT_SETTINGS } from "../lib/models.js";
+import {
+  showLanguagePicker,
+  showModelPicker,
+  showRecordingSettings,
+  showTranscriptionSettings,
+} from "../src/dialogs.ts";
+import { formatBytes, progressBar } from "../src/formatters.ts";
+import { normalizeSettings } from "../src/settings.ts";
+import { createVoiceController } from "../src/voice.ts";
+import { ensureDownloaded } from "../src/ensure.ts";
+
+// Exercise real footer registration and input callbacks without a native terminal.
+// The visual component itself is rendered in voice-button.test.js.
+const buttonStub = registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier === "./button/dock.ts" && context.parentURL?.endsWith("/src/tui.ts"))
+      return {
+        url: "data:text/javascript,export const DockedButtons = props => props",
+        shortCircuit: true,
+      };
+    return next(specifier, context);
+  },
+});
+const { default: tui } = await import("../src/tui.ts").finally(() => buttonStub.deregister());
+
+test("model progress counts resumed bytes, throttles chunks, and waits for verification", async (t) => {
+  const messages = [];
+  const toasts = [];
+  const notice = ["Скачиваю Fixture. Прогресс смотри под полем ввода.", "info"];
+  const MB = 1024 * 1024;
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  const env = {
+    settings: { uiLanguage: "ru" },
+    options: {},
+    toast: (...toast) => toasts.push(toast),
+    downloadStatus: (id, message) => {
+      assert.equal(id, "fixture");
+      messages.push(message);
+    },
+    download: async (_model, _options, _settings, { onProgress }) => {
+      const progress = (downloaded, total) =>
+        onProgress({ state: "downloading", downloaded, total });
+      progress(30 * MB, 100 * MB);
+      progress(31 * MB, 100 * MB);
+      now += 2000;
+      progress(40 * MB, 100 * MB);
+      onProgress({ state: "verifying" });
+      throw Error("SHA256 mismatch");
+    },
+  };
+  const model = { id: "fixture", name: "Fixture", filename: "unused", implemented: false };
+  await assert.rejects(ensureDownloaded(env, model), /SHA256 mismatch/);
+  assert.deepEqual(
+    messages.map((s) => s.hint),
+    [
+      "Загрузка модели…",
+      "Загрузка модели 30%",
+      "Загрузка модели 40%",
+      "Проверка…",
+      "Сбой загрузки · /voice-settings",
+    ],
+  );
+  assert.equal(messages[2].detail, "40 МБ / 100 МБ");
+  assert.equal(messages.at(-1).detail, "SHA256 mismatch");
+  assert.deepEqual(toasts, [notice]);
+  messages.length = 0;
+  env.download = async (_model, _options, _settings, { onProgress }) =>
+    onProgress({ state: "downloading", downloaded: 42 * MB, total: 0 });
+  await ensureDownloaded(env, model);
+  assert.deepEqual(
+    messages.map((s) => s.hint),
+    ["Загрузка модели…", "Загрузка модели · 42 МБ", "Диктовка готова"],
+  );
+  assert.deepEqual(toasts, [notice, notice]);
+});
+
+function mockStore(initial = {}) {
+  const draft = { ...DEFAULT_SETTINGS, uiLanguage: "en", ...initial };
+  return {
+    state: draft,
+    update: async (fn) => {
+      fn(draft);
+    },
+  };
+}
+
+function mockDialog(answers = {}) {
+  const log = { alerts: [], prompts: [], selects: [], selectArgs: [] };
+  const selectQueue = [...(answers.select ?? [])];
+  const promptQueue = [...(answers.prompt ?? [])];
+  return {
+    log,
+    api: {
+      alert: async (o) => {
+        log.alerts.push(o);
+      },
+      confirm: async (o) => {
+        log.alerts.push(o);
+        return answers.confirm ?? false;
+      },
+      prompt: async (o) => {
+        log.prompts.push(o);
+        return promptQueue.shift();
+      },
+      select: async (o) => {
+        log.selects.push(o.title);
+        log.selectArgs.push(o);
+        return selectQueue.shift();
+      },
+    },
+  };
+}
+
+function stubRuntime() {
+  return {
+    recording: false,
+    transcribing: false,
+    pendingSubmit: false,
+    startedWith: null,
+    cancelled: false,
+    async start(s) {
+      this.recording = true;
+      this.startedWith = s;
+    },
+    async stop() {
+      this.recording = false;
+      return "/tmp/voice-test.wav";
+    },
+    async transcribe() {
+      return "hello world";
+    },
+    cancel() {
+      this.cancelled = true;
+    },
+    isRecording() {
+      return this.recording;
+    },
+    isTranscribing() {
+      return this.transcribing;
+    },
+  };
+}
+
+const readyStub = {
+  isModelDownloaded: () => true,
+  ensureDownloaded: async () => true,
+  ensureEngineReady: async () => true,
+  ensureRecorderReady: async () => true,
+};
+
+test("transcription settings explain the selected model's download failure", async () => {
+  const store = mockStore({ model: "whisper-turbo" });
+  const dialog = mockDialog({ select: ["downloadError"] });
+  await showTranscriptionSettings({
+    dialog: dialog.api,
+    options: { downloadDir: "/missing/voice-test" },
+    getSettings: () => store.state,
+    getDownloadStatus: (id) => {
+      assert.equal(id, "whisper-turbo");
+      return {
+        phase: "failed",
+        hint: "Сбой загрузки · /voice-settings",
+        detail: "SHA256 mismatch",
+      };
+    },
+  });
+  const model = dialog.log.selectArgs[0].options.find((item) => item.value === "model");
+  assert.equal(model.description, "Whisper Turbo");
+  assert.deepEqual(dialog.log.alerts, [{ title: "Download error", message: "SHA256 mismatch" }]);
+});
+
+test("V2 normalization leaves an empty recording key unbound", () => {
+  const s = normalizeSettings({ recordingHotkey: " ", language: "", autoSubmit: 1 });
+  assert.equal(s.recordingHotkey, "");
+  assert.equal(s.language, "auto");
+  assert.equal(s.autoSubmit, true);
+  // V1 parity: getModel() falls back to default at use sites, so unknown ids
+  // are preserved in settings (index.js:26 only resets if fallback is unimplemented).
+  assert.equal(normalizeSettings({ model: "nope" }).model, "nope");
+});
+
+test("cleanup settings default on and normalize cutoff", () => {
+  const d = normalizeSettings({});
+  assert.equal(d.voiceEnhance, true);
+  assert.equal(d.cleanupCutoffHz, 120);
+  assert.equal(normalizeSettings({ voiceEnhance: false }).voiceEnhance, false);
+  assert.equal(normalizeSettings({ cleanupCutoffHz: 180 }).cleanupCutoffHz, 180);
+  assert.equal(normalizeSettings({ cleanupCutoffHz: "90" }).cleanupCutoffHz, 90);
+  for (const bad of [0, -3, 9999, "abc", Number.NaN]) {
+    assert.equal(normalizeSettings({ cleanupCutoffHz: bad }).cleanupCutoffHz, 120, String(bad));
+  }
+  assert.equal(normalizeSettings({ cleanupCutoffHz: 20 }).cleanupCutoffHz, 40);
+});
+
+test("recording cleanup toggle flips and persists", async () => {
+  const store = mockStore({});
+  const dialog = mockDialog({ select: ["cleanup", undefined, undefined] });
+  const d = {
+    dialog: dialog.api,
+    toast: () => {},
+    options: {},
+    getSettings: () => store.state,
+    update: store.update,
+  };
+  await showRecordingSettings(d);
+  assert.equal(store.state.voiceEnhance, false);
+});
+
+test("cutoff presets and custom validation", async () => {
+  const store = mockStore({});
+  let dialog = mockDialog({ select: ["cutoff", "180", undefined, undefined] });
+  let d = {
+    dialog: dialog.api,
+    toast: () => {},
+    options: {},
+    getSettings: () => store.state,
+    update: store.update,
+  };
+  await showRecordingSettings(d);
+  assert.equal(store.state.cleanupCutoffHz, 180);
+  const toasts = [];
+  dialog = mockDialog({ select: ["cutoff", "__custom", undefined, undefined], prompt: ["9"] });
+  d = {
+    dialog: dialog.api,
+    toast: (m) => toasts.push(m),
+    options: {},
+    getSettings: () => store.state,
+    update: store.update,
+  };
+  await showRecordingSettings(d);
+  assert.equal(store.state.cleanupCutoffHz, 180);
+  assert.ok(toasts.length > 0);
+});
+
+test("formatters stay stable", () => {
+  assert.equal(formatBytes(0), "0 MB");
+  assert.equal(formatBytes(57 * 1024 * 1024), "57 MB");
+  assert.ok(progressBar(50).includes("█") && progressBar(50).includes("░"));
+});
+
+test("controller toggle records, transcribes and delivers", async () => {
+  const runtime = stubRuntime();
+  const delivered = [];
+  const toasts = [];
+  const c = createVoiceController({
+    runtime,
+    options: {},
+    getSettings: () => normalizeSettings({}),
+    toast: (m, v = "info") => toasts.push([null, v]),
+    deliver: async (text, submit) => delivered.push([text, submit]),
+    onSetupError: () => assert.fail("no setup error expected"),
+    ready: readyStub,
+  });
+  await c.toggle(false);
+  assert.equal(runtime.recording, true);
+  await c.toggle(false);
+  assert.deepEqual(delivered, [["hello world", false]]);
+  assert.ok(toasts.some(([, v]) => v === "success"));
+});
+
+test("controller guards concurrent transcription", async () => {
+  const runtime = stubRuntime();
+  runtime.transcribing = true;
+  const toasts = [];
+  const c = createVoiceController({
+    runtime,
+    options: {},
+    getSettings: () => normalizeSettings({}),
+    toast: (m, v = "info") => toasts.push([null, v]),
+    deliver: async () => assert.fail("must not deliver"),
+    onSetupError: () => {},
+    ready: readyStub,
+  });
+  await c.toggle(false);
+  assert.ok(toasts.some(([, v]) => v === "warning"));
+});
+
+test("controller cancel stops runtime", () => {
+  const runtime = stubRuntime();
+  const toasts = [];
+  const c = createVoiceController({
+    runtime,
+    options: {},
+    getSettings: () => normalizeSettings({}),
+    toast: (m) => toasts.push(m),
+    deliver: async () => {},
+    onSetupError: () => {},
+    ready: readyStub,
+  });
+  c.cancel();
+  assert.equal(runtime.cancelled, true);
+});
+
+function draft(before = "", after = "") {
+  return {
+    isDestroyed: false,
+    focusCalls: 0,
+    focus() {
+      this.focusCalls++;
+    },
+    plainText: before + after,
+    editBuffer: new EventEmitter(),
+    cursorOffset: before.length,
+    insertText(text) {
+      assert.equal(this.isDestroyed, false);
+      this.plainText =
+        this.plainText.slice(0, this.cursorOffset) + text + this.plainText.slice(this.cursorOffset);
+      this.cursorOffset += text.length;
+      this.editBuffer.emit("content-changed");
+    },
+  };
+}
+
+async function mountVoice(
+  t,
+  {
+    settings = {},
+    route = { type: "session", sessionID: "s1" },
+    options = {},
+    onSend,
+    select,
+    confirm,
+  } = {},
+) {
+  const creates = [];
+  const sends = [];
+  const dispatched = [];
+  const navigations = [];
+  const modals = [];
+  const toasts = [];
+  const location = { directory: "/test/project", workspaceID: "w1" };
+  let composer = draft();
+  const container = {};
+  const anchor = { parent: { parent: container } };
+  const renderer = Object.assign(new EventEmitter(), {
+    root: { findDescendantById: (id) => (id === "voice-dock-anchor" ? anchor : null) },
+    currentFocusedRenderable: composer,
+  });
+  composer.parent = { parent: { parent: container } };
+  const input = {
+    get sessionID() {
+      return route.sessionID;
+    },
+    mode: "normal",
+    showDetails: true,
+  };
+  let button;
+  const runtime = stubRuntime();
+  let layerFn;
+  let store;
+  let cleanup = await tui.setup({
+    options: { createRuntime: () => runtime, ready: readyStub, ...options },
+    location,
+    renderer,
+    storage: {
+      store: (_key, { initial }) => {
+        store = mockStore({
+          ...initial,
+          uiLanguage: "en",
+          onboardingDone: true,
+          setupSkipped: true,
+          ...settings,
+        });
+        return [store.state, store.update];
+      },
+    },
+    ui: {
+      toast: { show: (t) => toasts.push(t) },
+      dialog: {
+        select,
+        confirm,
+        prompt: async (params) => {
+          modals.push(params);
+        },
+      },
+      router: { current: () => route, navigate: (next) => navigations.push(next) },
+      slot: (claim) => {
+        if (claim.append === "app") claim.render();
+        if (claim.append === "prompt.footer") {
+          const component = claim.render(input);
+          if (component?.toggle) button = component;
+        }
+        return () => {};
+      },
+    },
+    keymap: { layer: (fn) => (layerFn = fn), dispatch: (id) => dispatched.push(id) },
+    client: {
+      session: {
+        create: async (params) => {
+          creates.push(params);
+          return { id: "created" };
+        },
+        prompt: async (params) => {
+          sends.push(params);
+          await onSend?.(sends.length);
+        },
+      },
+    },
+  });
+  const dispose = () => {
+    const done = cleanup?.();
+    cleanup = undefined;
+    assert.equal(renderer.listenerCount("focused_renderable"), 0);
+    return done;
+  };
+  t.after(dispose);
+  t.after(() => {
+    assert.deepEqual(modals, [], "Dictation must not open a modal");
+    assert.deepEqual(creates, [], "Dictation must not create a session");
+    assert.deepEqual(navigations, [], "Dictation must not navigate");
+  });
+  const command = (id) => layerFn().commands.find((cmd) => cmd.id === id);
+  return {
+    command,
+    layer: layerFn,
+    settings: store.state,
+    sends,
+    dispatched,
+    location,
+    toasts,
+    runtime,
+    dispose,
+    button,
+    input,
+    get composer() {
+      return composer;
+    },
+    move(next, nextComposer) {
+      route = next;
+      composer = nextComposer;
+      composer.parent = { parent: { parent: container } };
+      renderer.currentFocusedRenderable = composer;
+    },
+    async focus(editor = composer) {
+      renderer.currentFocusedRenderable = editor;
+      renderer.emit("focused_renderable", editor);
+      await Promise.resolve();
+    },
+  };
+}
+
+test("plugin unload waits for the recorder to close and release the take", async (t) => {
+  const f = await mountVoice(t);
+  const closing = Promise.withResolvers();
+  f.runtime.cancel = () => closing.promise;
+  let unloaded = false;
+  const done = Promise.resolve(f.dispose()).then(() => (unloaded = true));
+  await Promise.resolve();
+  assert.equal(unloaded, false);
+  closing.resolve();
+  await done;
+  assert.equal(unloaded, true);
+});
+
+test("send button dispatches native submit without rebuilding or clearing the draft", async (t) => {
+  const f = await mountVoice(t, { route: { type: "home" } });
+  await f.focus();
+  f.composer.insertText("  ");
+  assert.equal(f.button.canSend, false);
+  f.button.onSend();
+  assert.deepEqual(f.dispatched, []);
+  f.composer.insertText("ask about @attached-file");
+  assert.equal(f.button.canSend, true);
+  f.button.onSend();
+  assert.deepEqual(f.dispatched, ["prompt.submit"]);
+  assert.equal(f.composer.plainText, "  ask about @attached-file");
+  assert.deepEqual(f.sends, []);
+  await f.command("voice.record").run();
+  f.button.onSend();
+  assert.equal(f.dispatched.length, 1);
+  await f.command("voice.record").run();
+  await f.focus(draft("Unrelated dialog"));
+  f.button.onSend();
+  assert.equal(f.dispatched.length, 1);
+});
+
+test("unavailable iPhone offers a choice without changing input or starting a second recording", async (t) => {
+  let confirmations = 0;
+  const f = await mountVoice(t, {
+    settings: { uiLanguage: "ru", mic: "My iPhone Microphone" },
+    confirm: async (dialog) => {
+      confirmations++;
+      assert.equal(dialog.label.confirm, "Выбрать микрофон");
+      return false;
+    },
+    select: () => assert.fail("closing must not open the picker"),
+  });
+  let starts = 0;
+  f.runtime.start = async () => {
+    starts++;
+    throw Object.assign(new Error("Microphone unavailable"), { code: "VOICE_MIC_UNAVAILABLE" });
+  };
+  await f.command("voice.record").run();
+  assert.equal(confirmations, 1);
+  assert.equal(starts, 1);
+  assert.equal(f.runtime.recording, false);
+  assert.equal(f.settings.mic, "My iPhone Microphone");
+});
+
+test("unplug recovers the partial take into the composer even with automatic submit enabled", async (t) => {
+  let interrupt;
+  let prompts = 0;
+  const f = await mountVoice(t, {
+    settings: { autoSubmit: true, uiLanguage: "ru" },
+    confirm: async ({ message }) => {
+      assert.match(message, /Запись прервалась/);
+      assert.match(f.composer.plainText, /hello world/);
+      prompts++;
+      return false;
+    },
+  });
+  f.runtime.start = async (_settings, onInterrupted) => {
+    f.runtime.recording = true;
+    interrupt = onInterrupted;
+  };
+  await f.command("voice.record").run();
+  await interrupt();
+  assert.equal(prompts, 1);
+  assert.deepEqual(f.sends, []);
+});
+
+test("choosing a replacement microphone saves it for the next take", async (t) => {
+  let picks = 0;
+  const f = await mountVoice(t, {
+    settings: { mic: ":My iPhone Microphone" },
+    options: { platform: "darwin", ffmpeg: process.execPath },
+    confirm: async () => true,
+    select: async (picker) => {
+      picks++;
+      assert.ok(picker.options.some(({ value }) => value === ""));
+      return "";
+    },
+  });
+  let starts = 0;
+  f.runtime.start = async () => {
+    starts++;
+    throw Object.assign(new Error("Disconnected"), { code: "VOICE_MIC_UNAVAILABLE" });
+  };
+  await f.command("voice.record").run();
+  assert.equal(picks, 1);
+  assert.equal(f.settings.mic, "");
+  assert.equal(starts, 1);
+});
+
+test("/orbs applies the selected effect and keeps it after reopening or cancelling", async (t) => {
+  let answer = "rain";
+  const choices = [];
+  const f = await mountVoice(t, {
+    settings: { uiLanguage: "ru", orb: "obsolete" },
+    select: async (dialog) => {
+      choices.push(dialog);
+      return answer;
+    },
+  });
+  const command = f.command("voice.orbs");
+  await command.run();
+  assert.equal(choices[0].current, "cycle");
+  assert.deepEqual(
+    choices[0].options.map((o) => o.title),
+    ["Вдох и дождь", "Цифровой вдох", "Цифровой дождь"],
+  );
+  assert.equal(f.settings.orb, "rain");
+  assert.equal(f.button.orb, "rain");
+  answer = undefined;
+  await command.run();
+  assert.equal(choices[1].current, "rain");
+  assert.equal(f.settings.orb, "rain");
+  assert.deepEqual(f.sends, []);
+});
+
+test("V2 registers /voice without a default shortcut and inserts at the live cursor", async (t) => {
+  const f = await mountVoice(t);
+  assert.equal(f.layer().mode, "global");
+  assert.deepEqual(
+    f.layer().commands.map((c) => c.id),
+    ["voice.record", "voice.submit", "voice.stop", "voice.settings", "voice.orbs"],
+  );
+  assert.equal(f.command("voice.orbs").slash.name, "orbs");
+  const record = f.command("voice.record");
+  assert.equal(record.bind, false);
+  assert.deepEqual(record.slash, { name: "voice", aliases: ["voice-record"] });
+  f.composer.insertText("Before after");
+  await record.run();
+  assert.equal(f.runtime.recording, true);
+  f.composer.cursorOffset = 7;
+  await record.run();
+  assert.match(f.composer.plainText, /^Before hello world ?after$/);
+  assert.equal(f.composer.focusCalls, 0, "Dictation must not steal keyboard focus");
+  assert.deepEqual(f.sends, []);
+});
+
+test("V2 drops the legacy default but retains an explicit plugin shortcut", async (t) => {
+  const settings = { recordingHotkey: "ctrl+space", hotkeyMigratedV2: true };
+  const old = await mountVoice(t, { settings });
+  assert.equal(old.settings.recordingHotkey, "");
+  assert.equal(old.command("voice.record").bind, false);
+  const configured = await mountVoice(t, { options: { recordingHotkey: "ctrl+space" } });
+  assert.equal(configured.command("voice.record").bind, "ctrl+space");
+});
+
+test("transcription settings toggle autoSubmit", async () => {
+  const store = mockStore({});
+  const dialog = mockDialog({ select: ["autoSubmit", undefined, undefined] });
+  const d = {
+    dialog: dialog.api,
+    toast: () => {},
+    options: {},
+    getSettings: () => store.state,
+    update: store.update,
+  };
+  await showTranscriptionSettings(d);
+  assert.equal(store.state.autoSubmit, true);
+});
+
+test("language picker custom code path", async () => {
+  const store = mockStore({});
+  const dialog = mockDialog({ select: ["__custom", undefined], prompt: ["de"] });
+  const d = {
+    dialog: dialog.api,
+    toast: () => {},
+    options: {},
+    getSettings: () => store.state,
+    update: store.update,
+  };
+  await showLanguagePicker(d);
+  assert.equal(store.state.language, "de");
+});
+
+test("recording hotkey preset updates store", async () => {
+  const store = mockStore({});
+  const dialog = mockDialog({ select: ["key", "alt+r", undefined, undefined] });
+  const d = {
+    dialog: dialog.api,
+    toast: () => {},
+    options: {},
+    getSettings: () => store.state,
+    update: store.update,
+  };
+  await showRecordingSettings(d);
+  assert.equal(store.state.recordingHotkey, "alt+r");
+});
+
+test("model picker options fit narrow dialog", async () => {
+  const store = mockStore({});
+  const toasts = [];
+  const dialog = mockDialog({ select: ["__skip"] });
+  const d = {
+    dialog: dialog.api,
+    toast: (m) => toasts.push(m),
+    options: {},
+    getSettings: () => store.state,
+    update: store.update,
+  };
+  await showModelPicker(d, true);
+  const picker = dialog.log.selectArgs[0];
+  assert.ok(picker.options.length > 10);
+  for (const opt of picker.options) {
+    if (opt.value === "__skip") continue;
+    assert.ok(opt.title.length <= 40, `title too long: ${opt.title}`);
+    assert.ok(!opt.title.includes("["), `no status tags in title: ${opt.title}`);
+    assert.ok(opt.category, "status belongs in the category header");
+    assert.equal(opt.description, undefined, "do not repeat status on each clipped row");
+    assert.ok(opt.footer.length <= 45, `footer too long: ${opt.footer}`);
+  }
+  assert.equal(store.state.setupSkipped, true);
+});
+
+test("/voice-submit at home inserts the transcript into the home draft", async (t) => {
+  const f = await mountVoice(t, { route: { type: "home" } });
+  await f.command("voice.submit").run();
+  await f.command("voice.submit").run();
+  assert.equal(f.composer.plainText.trimEnd(), "hello world");
+  assert.deepEqual(f.sends, []);
+});
+
+for (const blockedBy of ["dialog focus", "shell mode"]) {
+  test(`dictation waits for the normal composer during ${blockedBy}`, async (t) => {
+    const f = await mountVoice(t);
+    const dialog = draft("Other input");
+    await f.command("voice.record").run();
+    if (blockedBy === "dialog focus") await f.focus(dialog);
+    else f.input.mode = "shell";
+    await f.command("voice.record").run();
+    assert.equal(dialog.plainText, "Other input");
+    assert.equal(f.composer.plainText, "");
+    assert.match(f.toasts.at(-1).message, /original prompt/);
+    f.input.mode = "normal";
+    await f.focus();
+    assert.equal(f.composer.plainText.trimEnd(), "hello world");
+    assert.deepEqual(f.sends, []);
+  });
+}
+
+for (const [name, origin, other] of [
+  ["session", { type: "session", sessionID: "s1" }, { type: "session", sessionID: "s2" }],
+  ["project", { type: "home" }, { type: "home" }],
+]) {
+  test(`switching ${name} queues dictation until the original draft returns`, async (t) => {
+    const f = await mountVoice(t, { route: origin });
+    const originDirectory = f.location.directory;
+    await f.command("voice.submit").run();
+    f.composer.isDestroyed = true;
+    const unrelated = draft("Unrelated draft");
+    if (name === "project") f.location.directory = "/test/other";
+    f.move(other, unrelated);
+    await f.command("voice.submit").run();
+    assert.equal(unrelated.plainText, "Unrelated draft");
+    assert.deepEqual(f.sends, []);
+
+    await f.focus();
+    assert.equal(unrelated.plainText, "Unrelated draft");
+    const returned = draft("Original draft: ");
+    f.location.directory = originDirectory;
+    f.move(origin, returned);
+    await f.focus();
+    await f.focus();
+    assert.equal(returned.plainText.trimEnd(), "Original draft: hello world");
+    assert.equal(returned.focusCalls, 0);
+    assert.deepEqual(f.sends, [], "Returning to the origin must not send a queued transcript");
+  });
+}
+
+test("teardown prevents a late transcript from entering the draft", async (t) => {
+  const f = await mountVoice(t, { route: { type: "home" } });
+  const decoding = Promise.withResolvers();
+  const transcript = Promise.withResolvers();
+  f.runtime.transcribe = () => {
+    decoding.resolve();
+    return transcript.promise;
+  };
+  await f.command("voice.record").run();
+  const finishing = f.command("voice.record").run();
+  await decoding.promise;
+  f.dispose();
+  assert.equal(f.runtime.cancelled, true);
+  transcript.resolve("Late transcript");
+  await finishing;
+  assert.equal(f.composer.plainText, "");
+  assert.deepEqual(f.sends, []);
+  assert.ok(!f.toasts.some((toast) => toast.variant === "success"));
+});
+
+test("teardown discards queued dictation when a destroyed composer is later replaced", async (t) => {
+  const f = await mountVoice(t);
+  await f.command("voice.record").run();
+  f.composer.isDestroyed = true;
+  await f.command("voice.record").run();
+  assert.equal(f.composer.plainText, "");
+  assert.match(f.toasts.at(-1).message, /original prompt/);
+  f.dispose();
+  f.move({ type: "session", sessionID: "s1" }, draft("New draft"));
+  await f.focus();
+  assert.equal(f.composer.plainText, "New draft");
+  assert.deepEqual(f.sends, []);
+});
+
+test("a failed explicit send restores the original transcript to the draft without retrying", async (t) => {
+  const f = await mountVoice(t, {
+    onSend: () => {
+      throw Error("Disconnected");
+    },
+  });
+  await f.command("voice.submit").run();
+  await f.command("voice.submit").run();
+  assert.equal(f.composer.plainText.trimEnd(), "hello world");
+  assert.deepEqual(f.sends, [{ sessionID: "s1", text: "hello world" }]);
+});
+
+for (const [id, autoSubmit] of [
+  ["voice.record", true],
+  ["voice.submit", false],
+]) {
+  test(`${id} sends immediately to the unchanged chat with autoSubmit=${autoSubmit}`, async (t) => {
+    const f = await mountVoice(t, { settings: { autoSubmit } });
+    await f.command(id).run();
+    await f.command(id).run();
+    assert.deepEqual(f.sends, [{ sessionID: "s1", text: "hello world" }]);
+    assert.equal(f.composer.plainText, "");
+  });
+}
+
+test("button dictation inserts inline even with autoSubmit, whether clicked to start or stop", async (t) => {
+  for (const buttonStarts of [true, false]) {
+    const f = await mountVoice(t, { settings: { autoSubmit: true } });
+    const button = async () => {
+      f.button.toggle();
+      await new Promise((resolve) => setImmediate(resolve));
+    };
+    const command = f.command("voice.record").run;
+    await (buttonStarts ? button : command)();
+    await (buttonStarts ? command : button)();
+    assert.equal(f.composer.plainText.trimEnd(), "hello world");
+    assert.deepEqual(f.sends, []);
+  }
+});

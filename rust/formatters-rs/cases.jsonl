@@ -1,0 +1,125 @@
+{"fn":"formatBytes","args":[-1],"ok":"0 MB"}
+{"fn":"formatBytes","args":[1],"ok":"1 MB"}
+{"fn":"formatBytes","args":[1000000],"ok":"1 MB"}
+{"fn":"formatBytes","args":[2],"ok":"1 MB"}
+{"fn":"formatBytes","args":[{"$num":"Infinity"}],"ok":"Infinity GB"}
+{"fn":"formatBytes","args":[{"$num":"NaN"}],"ok":"0 MB"}
+{"fn":"formatBytes","args":[-2.5],"ok":"0 MB"}
+{"fn":"formatBytes","args":[42],"ok":"1 MB"}
+{"fn":"formatBytes","args":[{"$num":"-Infinity"}],"ok":"0 MB"}
+{"fn":"formatBytes","args":[10],"ok":"1 MB"}
+{"fn":"formatBytes","args":[0],"ok":"0 MB"}
+{"fn":"formatBytes","args":[1000],"ok":"1 MB"}
+{"fn":"formatBytes","args":[9007199254740992],"ok":"8388608.0 GB"}
+{"fn":"formatBytes","args":[0.5],"ok":"1 MB"}
+{"fn":"formatBytes","args":[{"$num":"-0"}],"ok":"0 MB"}
+{"fn":"formatBytes","args":[2147483648],"ok":"2.0 GB"}
+{"fn":"formatBytes","args":[3],"ok":"1 MB"}
+{"fn":"formatBytes","args":[100],"ok":"1 MB"}
+{"fn":"formatBytes","args":[-7.5],"ok":"0 MB"}
+{"fn":"formatBytes","args":[0.1],"ok":"1 MB"}
+{"fn":"formatBytes","args":[0.30000000000000004],"ok":"1 MB"}
+{"fn":"formatBytes","args":[1e+21],"ok":"931322574615.5 GB"}
+{"fn":"formatBytes","args":[1e-7],"ok":"1 MB"}
+{"fn":"formatBytes","args":[5e-324],"ok":"1 MB"}
+{"fn":"formatBytes","args":[1.7976931348623157e+308],"ok":"1.6742321987285425e+299 GB"}
+{"fn":"formatRate","args":[10],"ok":"1 KB/s"}
+{"fn":"formatRate","args":[{"$num":"Infinity"}],"ok":"Infinity MB/s"}
+{"fn":"formatRate","args":[0],"ok":"warming up"}
+{"fn":"formatRate","args":[0.5],"ok":"warming up"}
+{"fn":"formatRate","args":[3],"ok":"1 KB/s"}
+{"fn":"formatRate","args":[{"$num":"-Infinity"}],"ok":"warming up"}
+{"fn":"formatRate","args":[1],"ok":"1 KB/s"}
+{"fn":"formatRate","args":[9007199254740992],"ok":"8589934592.0 MB/s"}
+{"fn":"formatRate","args":[2],"ok":"1 KB/s"}
+{"fn":"formatRate","args":[1000000],"ok":"977 KB/s"}
+{"fn":"formatRate","args":[1000],"ok":"1 KB/s"}
+{"fn":"formatRate","args":[42],"ok":"1 KB/s"}
+{"fn":"formatRate","args":[-1],"ok":"warming up"}
+{"fn":"formatRate","args":[{"$num":"-0"}],"ok":"warming up"}
+{"fn":"formatRate","args":[-2.5],"ok":"warming up"}
+{"fn":"formatRate","args":[100],"ok":"1 KB/s"}
+{"fn":"formatRate","args":[{"$num":"NaN"}],"ok":"warming up"}
+{"fn":"formatRate","args":[2147483648],"ok":"2048.0 MB/s"}
+{"fn":"formatRate","args":[-7.5],"ok":"warming up"}
+{"fn":"formatRate","args":[0.1],"ok":"warming up"}
+{"fn":"formatRate","args":[0.30000000000000004],"ok":"warming up"}
+{"fn":"formatRate","args":[1e+21],"ok":"953674316406250.0 MB/s"}
+{"fn":"formatRate","args":[1e-7],"ok":"warming up"}
+{"fn":"formatRate","args":[5e-324],"ok":"warming up"}
+{"fn":"formatRate","args":[1.7976931348623157e+308],"ok":"1.7144137714980275e+302 MB/s"}
+{"fn":"formatDuration","args":[0.5],"ok":"calculating"}
+{"fn":"formatDuration","args":[3],"ok":"3s"}
+{"fn":"formatDuration","args":[0],"ok":"calculating"}
+{"fn":"formatDuration","args":[2],"ok":"2s"}
+{"fn":"formatDuration","args":[1],"ok":"1s"}
+{"fn":"formatDuration","args":[-2.5],"ok":"calculating"}
+{"fn":"formatDuration","args":[{"$num":"-Infinity"}],"ok":"calculating"}
+{"fn":"formatDuration","args":[{"$num":"NaN"}],"ok":"calculating"}
+{"fn":"formatDuration","args":[{"$num":"Infinity"}],"ok":"calculating"}
+{"fn":"formatDuration","args":[-1],"ok":"calculating"}
+{"fn":"formatDuration","args":[1000],"ok":"16m 40s"}
+{"fn":"formatDuration","args":[10],"ok":"10s"}
+{"fn":"formatDuration","args":[9007199254740992],"ok":"150119987579016m 32s"}
+{"fn":"formatDuration","args":[100],"ok":"1m 40s"}
+{"fn":"formatDuration","args":[1000000],"ok":"16666m 40s"}
+{"fn":"formatDuration","args":[{"$num":"-0"}],"ok":"calculating"}
+{"fn":"formatDuration","args":[2147483648],"ok":"35791394m 08s"}
+{"fn":"formatDuration","args":[42],"ok":"42s"}
+{"fn":"formatDuration","args":[-7.5],"ok":"calculating"}
+{"fn":"formatDuration","args":[0.1],"ok":"calculating"}
+{"fn":"formatDuration","args":[0.30000000000000004],"ok":"calculating"}
+{"fn":"formatDuration","args":[1e+21],"ok":"16666666666666666000m 40s"}
+{"fn":"formatDuration","args":[1e-7],"ok":"calculating"}
+{"fn":"formatDuration","args":[5e-324],"ok":"calculating"}
+{"fn":"formatDuration","args":[1.7976931348623157e+308],"ok":"2.9961552247705265e+306m 08s"}
+{"fn":"progressBar","args":[10],"ok":"███░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[3],"ok":"█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[{"$num":"-0"}],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[1],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[-2.5],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[{"$num":"-Infinity"}],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[2147483648],"ok":"██████████████████████████████████"}
+{"fn":"progressBar","args":[100],"ok":"██████████████████████████████████"}
+{"fn":"progressBar","args":[1000],"ok":"██████████████████████████████████"}
+{"fn":"progressBar","args":[0],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[1000000],"ok":"██████████████████████████████████"}
+{"fn":"progressBar","args":[{"$num":"NaN"}],"ok":""}
+{"fn":"progressBar","args":[-1],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[9007199254740992],"ok":"██████████████████████████████████"}
+{"fn":"progressBar","args":[0.5],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[{"$num":"Infinity"}],"ok":"██████████████████████████████████"}
+{"fn":"progressBar","args":[42],"ok":"██████████████░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[2],"ok":"█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[-7.5],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[0.1],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[0.30000000000000004],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[1e+21],"ok":"██████████████████████████████████"}
+{"fn":"progressBar","args":[1e-7],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[5e-324],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"}
+{"fn":"progressBar","args":[1.7976931348623157e+308],"ok":"██████████████████████████████████"}
+{"fn":"progressLine","args":[{"$num":"-0"}],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    0%"}
+{"fn":"progressLine","args":[1000000],"ok":"██████████████████████████████████  1000000%"}
+{"fn":"progressLine","args":[{"$num":"Infinity"}],"ok":"██████████████████████████████████  Infinity%"}
+{"fn":"progressLine","args":[0],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    0%"}
+{"fn":"progressLine","args":[100],"ok":"██████████████████████████████████  100%"}
+{"fn":"progressLine","args":[1],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    1%"}
+{"fn":"progressLine","args":[2],"ok":"█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    2%"}
+{"fn":"progressLine","args":[2147483648],"ok":"██████████████████████████████████  2147483648%"}
+{"fn":"progressLine","args":[10],"ok":"███░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   10%"}
+{"fn":"progressLine","args":[{"$num":"NaN"}],"ok":"  NaN%"}
+{"fn":"progressLine","args":[3],"ok":"█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    3%"}
+{"fn":"progressLine","args":[9007199254740992],"ok":"██████████████████████████████████  9007199254740992%"}
+{"fn":"progressLine","args":[1000],"ok":"██████████████████████████████████  1000%"}
+{"fn":"progressLine","args":[0.5],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    1%"}
+{"fn":"progressLine","args":[42],"ok":"██████████████░░░░░░░░░░░░░░░░░░░░   42%"}
+{"fn":"progressLine","args":[-2.5],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   -2%"}
+{"fn":"progressLine","args":[{"$num":"-Infinity"}],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  -Infinity%"}
+{"fn":"progressLine","args":[-1],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   -1%"}
+{"fn":"progressLine","args":[-7.5],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   -7%"}
+{"fn":"progressLine","args":[0.1],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    0%"}
+{"fn":"progressLine","args":[0.30000000000000004],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    0%"}
+{"fn":"progressLine","args":[1e+21],"ok":"██████████████████████████████████  1e+21%"}
+{"fn":"progressLine","args":[1e-7],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    0%"}
+{"fn":"progressLine","args":[5e-324],"ok":"░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    0%"}
+{"fn":"progressLine","args":[1.7976931348623157e+308],"ok":"██████████████████████████████████  1.7976931348623157e+308%"}

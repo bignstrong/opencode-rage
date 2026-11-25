@@ -1,0 +1,608 @@
+{
+  "ru": {
+    "Voice settings": "Настройки голосового ввода",
+    "Search…": "Поиск…",
+    "Interface language": "Язык интерфейса",
+    "Follow system language": "Как в системе",
+    "Set up voice input: choose a local model": "Настройка голосового ввода: выберите модель",
+    "Voice setup failed": "Не удалось настроить голосовой ввод",
+    "Voice model": "Модель распознавания",
+    "Search voice models...": "Найти модель…",
+    "Downloaded models": "Скачанные модели",
+    "Pending verification": "Ожидают проверки",
+    "Available to download": "Доступны для загрузки",
+    "Planned sidecar models": "Планируемые модели",
+    "Skip setup for now": "Настроить позже",
+    "Setup": "Настройка",
+    "Voice setup skipped. Use /voice-settings when ready.": "Настройка пропущена. Вернуться к ней: /voice-settings.",
+    "downloaded": "скачана",
+    "not downloaded": "не скачана",
+    "ready": "готова",
+    "multilingual": "многоязычная",
+    "English": "английский",
+    "langs": "яз.",
+    "Voice language": "Язык распознавания",
+    "Auto detect": "Определять автоматически",
+    "Custom code": "Другой код языка",
+    "Custom language code": "Код языка речи",
+    "Voice microphone": "Микрофон для записи",
+    "System default": "Системный микрофон",
+    "Saved, not listed": "Сохранён, не в списке",
+    "Legacy selection": "Старый выбор",
+    "Device index": "Номер устройства",
+    "iPhone not listed?": "Нет iPhone в списке?",
+    "Find iPhone": "Где iPhone?",
+    "Check for the iPhone in Mac System Settings > Sound > Input. Enable Continuity Camera on the iPhone and keep it near the Mac. Close this message to refresh the list, or choose System default.": "Проверьте список на Mac: Системные настройки → Звук → Вход. Включите «Камеру Continuity» на iPhone и положите его рядом с Mac. Закройте подсказку, чтобы обновить список. Для записи можно выбрать системный микрофон.",
+    "Custom device": "Другое устройство",
+    "Custom microphone device": "Имя устройства записи",
+    "Also renames sessions": "Также переименовывает сессию",
+    "Custom hotkey": "Другая комбинация",
+    "Record key": "Клавиши записи",
+    "Custom recording key": "Сочетание клавиш для записи",
+    "No shortcut": "Без сочетания клавиш",
+    "Platform": "Платформа",
+    "Recorder": "Запись звука",
+    "yes": "да",
+    "no": "нет",
+    "Engine": "Движок",
+    "Active model": "Текущая модель",
+    "Model path": "Путь к модели",
+    "Cache dir": "Папка кеша",
+    "Voice diagnostics": "Диагностика голосового ввода",
+    "Native engine": "Движок распознавания",
+    "missing": "не найден",
+    "managed": "установлен плагином",
+    "system": "системный",
+    "option": "из настроек",
+    "env": "из переменной окружения",
+    "Import detected engine": "Импортировать найденный движок",
+    "Install managed engine": "Скачать движок для плагина",
+    "Check or repair engine": "Проверить и восстановить движок",
+    "Installing engine…": "Установка движка…",
+    "Managed engine ready": "Движок плагина готов",
+    "Remove managed engine": "Удалить движок плагина",
+    "Diagnostics": "Диагностика",
+    "Managed engine imported": "Движок импортирован",
+    "Engine import failed": "Не удалось импортировать движок",
+    "Engine install failed": "Не удалось установить движок",
+    "Remove managed engine?": "Удалить движок плагина?",
+    "Remove": "Удалить",
+    "Cancel": "Отмена",
+    "Managed engine removed": "Движок плагина удалён",
+    "Engine remove failed": "Не удалось удалить движок",
+    "Recording": "Запись",
+    "Activity animations": "Анимация активности",
+    "Voice cleanup": "Очистка звука",
+    "enabled": "вкл.",
+    "disabled": "выкл.",
+    "Rumble filter": "Фильтр низких частот",
+    "Hz": "Гц",
+    "off (cleanup disabled)": "очистка выключена",
+    "Gentle": "Мягкий",
+    "Default": "По умолчанию",
+    "Strong": "Сильный",
+    "Custom cutoff": "Другая частота",
+    "Rumble filter cutoff": "Частота среза фильтра",
+    "Custom cutoff frequency": "Своя частота среза",
+    "Cutoff must be 40-500 Hz.": "Введите частоту от 40 до 500 Гц.",
+    "Transcription": "Распознавание",
+    "Model": "Модель",
+    "Download model": "Скачать модель",
+    "Downloading…": "Загрузка…",
+    "Verifying…": "Проверка…",
+    "Show download error": "Показать ошибку загрузки",
+    "Download error": "Ошибка загрузки",
+    "Language": "Язык речи",
+    "auto detect": "автоопределение",
+    "Auto-submit": "Отправлять текст сразу",
+    "System": "Система",
+    "Storage and engine": "Файлы и движок",
+    "Microphone": "Микрофон",
+    "Storage directory": "Папка хранения",
+    "Models, recordings and engines. Leave empty for the default.": "Здесь хранятся модели, записи и движки. Оставьте поле пустым для папки по умолчанию.",
+    "toggle": "по нажатию",
+    "auto language": "автоопределение языка"
+  },
+  "languages": [
+    {
+      "en": "Afrikaans",
+      "code": "af",
+      "ru": "африкаанс"
+    },
+    {
+      "en": "Amharic",
+      "code": "am",
+      "ru": "амхарский"
+    },
+    {
+      "en": "Arabic",
+      "code": "ar",
+      "ru": "арабский"
+    },
+    {
+      "en": "Assamese",
+      "code": "as",
+      "ru": "ассамский"
+    },
+    {
+      "en": "Azerbaijani",
+      "code": "az",
+      "ru": "азербайджанский"
+    },
+    {
+      "en": "Bashkir",
+      "code": "ba",
+      "ru": "башкирский"
+    },
+    {
+      "en": "Belarusian",
+      "code": "be",
+      "ru": "белорусский"
+    },
+    {
+      "en": "Bulgarian",
+      "code": "bg",
+      "ru": "болгарский"
+    },
+    {
+      "en": "Bengali",
+      "code": "bn",
+      "ru": "бенгальский"
+    },
+    {
+      "en": "Tibetan",
+      "code": "bo",
+      "ru": "тибетский"
+    },
+    {
+      "en": "Breton",
+      "code": "br",
+      "ru": "бретонский"
+    },
+    {
+      "en": "Bosnian",
+      "code": "bs",
+      "ru": "боснийский"
+    },
+    {
+      "en": "Catalan",
+      "code": "ca",
+      "ru": "каталанский"
+    },
+    {
+      "en": "Czech",
+      "code": "cs",
+      "ru": "чешский"
+    },
+    {
+      "en": "Welsh",
+      "code": "cy",
+      "ru": "валлийский"
+    },
+    {
+      "en": "Danish",
+      "code": "da",
+      "ru": "датский"
+    },
+    {
+      "en": "German",
+      "code": "de",
+      "ru": "немецкий"
+    },
+    {
+      "en": "Greek",
+      "code": "el",
+      "ru": "греческий"
+    },
+    {
+      "en": "English",
+      "code": "en",
+      "ru": "английский"
+    },
+    {
+      "en": "Spanish",
+      "code": "es",
+      "ru": "испанский"
+    },
+    {
+      "en": "Estonian",
+      "code": "et",
+      "ru": "эстонский"
+    },
+    {
+      "en": "Basque",
+      "code": "eu",
+      "ru": "баскский"
+    },
+    {
+      "en": "Persian",
+      "code": "fa",
+      "ru": "персидский"
+    },
+    {
+      "en": "Finnish",
+      "code": "fi",
+      "ru": "финский"
+    },
+    {
+      "en": "Faroese",
+      "code": "fo",
+      "ru": "фарерский"
+    },
+    {
+      "en": "French",
+      "code": "fr",
+      "ru": "французский"
+    },
+    {
+      "en": "Galician",
+      "code": "gl",
+      "ru": "галисийский"
+    },
+    {
+      "en": "Gujarati",
+      "code": "gu",
+      "ru": "гуджарати"
+    },
+    {
+      "en": "Hausa",
+      "code": "ha",
+      "ru": "хауса"
+    },
+    {
+      "en": "Hawaiian",
+      "code": "haw",
+      "ru": "гавайский"
+    },
+    {
+      "en": "Hebrew",
+      "code": "he",
+      "ru": "иврит"
+    },
+    {
+      "en": "Hindi",
+      "code": "hi",
+      "ru": "хинди"
+    },
+    {
+      "en": "Croatian",
+      "code": "hr",
+      "ru": "хорватский"
+    },
+    {
+      "en": "Haitian Creole",
+      "code": "ht",
+      "ru": "гаитянский"
+    },
+    {
+      "en": "Hungarian",
+      "code": "hu",
+      "ru": "венгерский"
+    },
+    {
+      "en": "Armenian",
+      "code": "hy",
+      "ru": "армянский"
+    },
+    {
+      "en": "Indonesian",
+      "code": "id",
+      "ru": "индонезийский"
+    },
+    {
+      "en": "Icelandic",
+      "code": "is",
+      "ru": "исландский"
+    },
+    {
+      "en": "Italian",
+      "code": "it",
+      "ru": "итальянский"
+    },
+    {
+      "en": "Japanese",
+      "code": "ja",
+      "ru": "японский"
+    },
+    {
+      "en": "Javanese",
+      "code": "jw",
+      "ru": "яванский"
+    },
+    {
+      "en": "Georgian",
+      "code": "ka",
+      "ru": "грузинский"
+    },
+    {
+      "en": "Kazakh",
+      "code": "kk",
+      "ru": "казахский"
+    },
+    {
+      "en": "Khmer",
+      "code": "km",
+      "ru": "кхмерский"
+    },
+    {
+      "en": "Kannada",
+      "code": "kn",
+      "ru": "каннада"
+    },
+    {
+      "en": "Korean",
+      "code": "ko",
+      "ru": "корейский"
+    },
+    {
+      "en": "Latin",
+      "code": "la",
+      "ru": "латинский"
+    },
+    {
+      "en": "Luxembourgish",
+      "code": "lb",
+      "ru": "люксембургский"
+    },
+    {
+      "en": "Lingala",
+      "code": "ln",
+      "ru": "лингала"
+    },
+    {
+      "en": "Lao",
+      "code": "lo",
+      "ru": "лаосский"
+    },
+    {
+      "en": "Lithuanian",
+      "code": "lt",
+      "ru": "литовский"
+    },
+    {
+      "en": "Latvian",
+      "code": "lv",
+      "ru": "латышский"
+    },
+    {
+      "en": "Malagasy",
+      "code": "mg",
+      "ru": "малагасийский"
+    },
+    {
+      "en": "Maori",
+      "code": "mi",
+      "ru": "маори"
+    },
+    {
+      "en": "Macedonian",
+      "code": "mk",
+      "ru": "македонский"
+    },
+    {
+      "en": "Malayalam",
+      "code": "ml",
+      "ru": "малаялам"
+    },
+    {
+      "en": "Mongolian",
+      "code": "mn",
+      "ru": "монгольский"
+    },
+    {
+      "en": "Marathi",
+      "code": "mr",
+      "ru": "маратхи"
+    },
+    {
+      "en": "Malay",
+      "code": "ms",
+      "ru": "малайский"
+    },
+    {
+      "en": "Maltese",
+      "code": "mt",
+      "ru": "мальтийский"
+    },
+    {
+      "en": "Myanmar",
+      "code": "my",
+      "ru": "бирманский"
+    },
+    {
+      "en": "Nepali",
+      "code": "ne",
+      "ru": "непальский"
+    },
+    {
+      "en": "Dutch",
+      "code": "nl",
+      "ru": "нидерландский"
+    },
+    {
+      "en": "Norwegian Nynorsk",
+      "code": "nn",
+      "ru": "нюнорск"
+    },
+    {
+      "en": "Norwegian",
+      "code": "no",
+      "ru": "норвежский"
+    },
+    {
+      "en": "Occitan",
+      "code": "oc",
+      "ru": "окситанский"
+    },
+    {
+      "en": "Punjabi",
+      "code": "pa",
+      "ru": "панджаби"
+    },
+    {
+      "en": "Pashto",
+      "code": "ps",
+      "ru": "пушту"
+    },
+    {
+      "en": "Portuguese",
+      "code": "pt",
+      "ru": "португальский"
+    },
+    {
+      "en": "Romanian",
+      "code": "ro",
+      "ru": "румынский"
+    },
+    {
+      "en": "Russian",
+      "code": "ru",
+      "ru": "русский"
+    },
+    {
+      "en": "Sanskrit",
+      "code": "sa",
+      "ru": "санскрит"
+    },
+    {
+      "en": "Sindhi",
+      "code": "sd",
+      "ru": "синдхи"
+    },
+    {
+      "en": "Sinhala",
+      "code": "si",
+      "ru": "сингальский"
+    },
+    {
+      "en": "Slovak",
+      "code": "sk",
+      "ru": "словацкий"
+    },
+    {
+      "en": "Slovenian",
+      "code": "sl",
+      "ru": "словенский"
+    },
+    {
+      "en": "Shona",
+      "code": "sn",
+      "ru": "шона"
+    },
+    {
+      "en": "Somali",
+      "code": "so",
+      "ru": "сомали"
+    },
+    {
+      "en": "Albanian",
+      "code": "sq",
+      "ru": "албанский"
+    },
+    {
+      "en": "Serbian",
+      "code": "sr",
+      "ru": "сербский"
+    },
+    {
+      "en": "Sundanese",
+      "code": "su",
+      "ru": "сунданский"
+    },
+    {
+      "en": "Swedish",
+      "code": "sv",
+      "ru": "шведский"
+    },
+    {
+      "en": "Swahili",
+      "code": "sw",
+      "ru": "суахили"
+    },
+    {
+      "en": "Tamil",
+      "code": "ta",
+      "ru": "тамильский"
+    },
+    {
+      "en": "Telugu",
+      "code": "te",
+      "ru": "телугу"
+    },
+    {
+      "en": "Tajik",
+      "code": "tg",
+      "ru": "таджикский"
+    },
+    {
+      "en": "Thai",
+      "code": "th",
+      "ru": "тайский"
+    },
+    {
+      "en": "Turkmen",
+      "code": "tk",
+      "ru": "туркменский"
+    },
+    {
+      "en": "Tagalog",
+      "code": "tl",
+      "ru": "филиппинский"
+    },
+    {
+      "en": "Turkish",
+      "code": "tr",
+      "ru": "турецкий"
+    },
+    {
+      "en": "Tatar",
+      "code": "tt",
+      "ru": "татарский"
+    },
+    {
+      "en": "Ukrainian",
+      "code": "uk",
+      "ru": "украинский"
+    },
+    {
+      "en": "Urdu",
+      "code": "ur",
+      "ru": "урду"
+    },
+    {
+      "en": "Uzbek",
+      "code": "uz",
+      "ru": "узбекский"
+    },
+    {
+      "en": "Vietnamese",
+      "code": "vi",
+      "ru": "вьетнамский"
+    },
+    {
+      "en": "Yiddish",
+      "code": "yi",
+      "ru": "идиш"
+    },
+    {
+      "en": "Yoruba",
+      "code": "yo",
+      "ru": "йоруба"
+    },
+    {
+      "en": "Chinese",
+      "code": "zh",
+      "ru": "китайский"
+    },
+    {
+      "en": "Cantonese",
+      "code": "yue",
+      "ru": "кантонский"
+    },
+    {
+      "en": "Zulu",
+      "code": "zu",
+      "ru": "зулу"
+    }
+  ]
+}

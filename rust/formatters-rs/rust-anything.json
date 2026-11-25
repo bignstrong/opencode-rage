@@ -1,0 +1,102 @@
+{
+  "schema": "rust-anything/bridge@1",
+  "root": ".",
+  "unit": "src/formatters.ts",
+  "language": "ts",
+  "kind": "napi",
+  "crate_name": "formatters-rs",
+  "exports": [
+    {
+      "name": "formatBytes",
+      "file": "src/formatters.ts",
+      "line": 1,
+      "params": [
+        {
+          "name": "value",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "formatRate",
+      "file": "src/formatters.ts",
+      "line": 7,
+      "params": [
+        {
+          "name": "bytesPerSecond",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "formatDuration",
+      "file": "src/formatters.ts",
+      "line": 13,
+      "params": [
+        {
+          "name": "seconds",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "progressBar",
+      "file": "src/formatters.ts",
+      "line": 22,
+      "params": [
+        {
+          "name": "percent",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "progressLine",
+      "file": "src/formatters.ts",
+      "line": 28,
+      "params": [
+        {
+          "name": "percent",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": []
+}
