@@ -10,7 +10,7 @@ function parseArgs() {
 
 const args = parseArgs();
 const dir = path.resolve(args.dir || "dist/engines");
-const repo = args.repo || process.env.GITHUB_REPOSITORY || "ihxnnxs/opencode-voice";
+const repo = args.repo || process.env.GITHUB_REPOSITORY || "bignstrong/opencode-rage";
 const tag = args.tag || process.env.ENGINE_RELEASE_TAG || "v0.1.0";
 const version = args.version || process.env.WHISPER_CPP_REF || tag;
 const assetBase = args.assetBase || process.env.ENGINE_ASSET_BASE || `https://github.com/${repo}/releases/download/${tag}`;

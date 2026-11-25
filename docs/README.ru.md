@@ -67,4 +67,4 @@ OPENCODE_CLI_CONFIG_CONTENT="$(node -p 'JSON.stringify({plugins:[process.cwd()]}
 
 `npm run check` запускает проверку типов, синтаксиса, линтер и тесты. [Основной README](../README.md) содержит инструкции по установке и диагностике. [Документация OpenCode](https://opencode.ai/docs/cli/plugins) описывает подключение локальных плагинов.
 
-Основа: [opencode-voice](https://github.com/safwan-o/opencode-voice), лицензия [MIT](../LICENSE). Логотип адаптирован из [OpenCode](https://github.com/anomalyco/opencode). Каталог GGUF взят из [Handy](https://github.com/cjpais/Handy); для распознавания используются [whisper.cpp](https://github.com/ggml-org/whisper.cpp) и [transcribe-cpp](https://crates.io/crates/transcribe-cpp). Для записи и обработки плагин использует [FFmpeg](https://ffmpeg.org/) и поддерживает [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static). Модели на [Hugging Face](https://huggingface.co/) имеют собственные лицензии.
+[Карта Rust-ядра и интерфейса](../README.md#how-rage-works) · [Лицензии и сторонние компоненты](../NOTICE.md)

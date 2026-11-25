@@ -6,7 +6,7 @@
 
 1. **Home dictation and session controls passed on the same installed archive**, SHA256 `7261b48d257748dd3b3c305dfd460d198516479d27b2b9a510a9929e7f679ede`. The home receipt records a UID-pinned synthetic recorder, real Russian GigaAM inference, editable draft, zero provider POSTs and zero stored messages. That run pre-seeded onboarding, engine and model receipt; cleanup and auto-submit were off. Final default `npm run check`: **199 passed, 0 failed, 11 skipped (210 total)**.
 2. **Pinned-open recovery is fixed.** A device that enumerates successfully but fails to open used to yield a generic toast. The script now injects that exact FFmpeg failure before the first sample. Freshly built Rust and archived JS both attempted capture once and raised `VOICE_MIC_UNAVAILABLE`, the code that opens the replacement-input dialog. Neither fell back to another microphone.
-3. **Release packaging builds before packing.** `.github/workflows/publish-npm.yml` builds both macOS targets, merges and signs addon/core, packs once on `macos-15`, and checks each architecture separately in both extracted binaries. The publish job consumes that tarball by digest. Offline verification loaded the extracted arm64 addon, ran the core's `cli --help`, found the generated JS and verified both signatures. `--release-inputs` exited **2**: the Intel target is not installed here. The universal release artifact and native Intel execution remain unverified by this audit.
+3. **Release packaging is manual.** `scripts/check-rust.sh --release-inputs` verifies both slices and signatures. The audit loaded the arm64 addon and ran the packaged CLI; Intel execution was not verified on the audit machine.
 
 ## What runs on the default path
 

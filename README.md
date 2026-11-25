@@ -1,12 +1,12 @@
 # Rage for OpenCode
 
-One terminal plugin for local dictation, prompt controls, and animated activity indicators. Dictate into a draft, edit it, and send it with the same attachments. Choose the animation independently with `/orbs`.
+A terminal plugin for local dictation, prompt controls, and animated activity indicators. Dictate into a draft, edit it, and send it with the same attachments. Choose the animation independently with `/orbs`.
 
 [Русская инструкция](docs/README.ru.md) · [Development](CONTRIBUTING.md) · [License](LICENSE)
 
 ## Install from this repository (OpenCode V2)
 
-On macOS this branch uses Rust by default. Source builds require Cargo and Xcode Command Line Tools. The npm tarball built on a Mac includes the core executable and the native addon for that Mac's architecture.
+On macOS Rage uses its Rust core by default. Source builds require Cargo and Xcode Command Line Tools. The npm tarball built on a Mac includes the core executable and the native addon for that Mac's architecture.
 
 ```sh
 git clone https://github.com/bignstrong/opencode-rage.git
@@ -16,18 +16,10 @@ npm run build:native
 pwd
 ```
 
-**Upgrading from `opencode-voice` on macOS?** Quit OpenCode before it loads Rage for the first time. From the built Rage directory, run:
-
-```sh
-./native/target/release/rage-core migrate-settings "${XDG_STATE_HOME:-$HOME/.local/state}/opencode/latest/tui"
-```
-
-This is the standard OpenCode 2.4.1 `latest` channel path. For a different profile, run `opencode debug paths` in its environment and pass the absolute physical directory containing `plugin.opencode-voice.settings.json`. The command copies that file to `plugin.rage.settings.json` with owner-only permissions. It keeps the original, never replaces an existing destination, and does nothing if the old settings are absent. It prints only the outcome. Models and engines stay in their existing cache.
-
 In `~/.config/opencode/cli.json`, add the absolute path printed by `pwd` to `plugins`. If you used `opencode-voice`, **replace** its entry with that path. Start OpenCode, or run `/reload` for a fresh install in an open TUI. This checkout does not require an npm release.
 
 ```json
-{"plugins": ["/absolute/path/to/rage"]}
+{"plugins": ["/absolute/path/to/opencode-rage"]}
 ```
 
 ## Commands
@@ -44,13 +36,10 @@ On macOS the microphone list updates while open. Choose the system input or pin 
 
 Run `node bin/opencode-voice.js doctor` for recorder and engine diagnostics. The V1 entry remains in `index.js`; V2 loads `src/tui.ts`. Both share `lib/`. Run `npm run check` before changing the plugin.
 
-## Credits
+## How Rage works
 
-Rage is based on [safwan-o/opencode-voice](https://github.com/safwan-o/opencode-voice), derived from [ihxnnxs/opencode-voice](https://github.com/ihxnnxs/opencode-voice). The original MIT [license](LICENSE) is retained. Upstream credits:
+- [`native/src/`](native/src/): the Rust executable discovers microphones, supervises FFmpeg or SoX, recovers interrupted takes, verifies model downloads and runs the selected speech engine. The decoder itself is Whisper or transcribe.cpp.
+- [`native/host/src/`](native/host/src/): the Rust addon decides when a take can be sent, tracks pending drafts, handles settings and microphone selection, and generates animation frames.
+- [`src/tui.ts`](src/tui.ts): the TypeScript plugin registers commands with OpenCode, renders controls and inserts recognized text into its editor. The legacy entry and reference implementation remain in JavaScript.
 
-- OpenCode wordmark SVG adapted from the public [OpenCode repository](https://github.com/anomalyco/opencode). The `voice` mark was added for this plugin.
-- [Handy](https://github.com/cjpais/Handy) inspired the local-first model experience and supplies the curated `transcribe.cpp` model catalog this plugin pins and verifies.
-- Local Whisper transcription uses [`whisper.cpp`](https://github.com/ggml-org/whisper.cpp).
-- Handy GGUF transcription runs through the Rust [`transcribe-cpp`](https://crates.io/crates/transcribe-cpp) binding and its upstream `transcribe.cpp` runtime.
-- Recording and conversion rely on [FFmpeg](https://ffmpeg.org/) where the platform recorder requires it; managed distribution uses [`ffmpeg-static`](https://github.com/eugeneware/ffmpeg-static).
-- Model artifacts are hosted by [Hugging Face](https://huggingface.co/). Individual model creators and licenses remain those declared by each upstream model repository; their pinned source URLs are retained in `lib/handy-model-catalog.js`.
+[Third-party notices](NOTICE.md) · [Benchmark on Apple Silicon](docs/performance.ru.md)
