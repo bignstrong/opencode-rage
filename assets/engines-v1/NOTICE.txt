@@ -1,0 +1,31 @@
+Rage managed engines, engines-v1
+
+These ten gzip archives are unchanged copies from ihxnnxs/opencode-voice
+v0.2.0. Rage replaced only download URLs in registry.json. Keep
+ENGINE-LICENSES.zip with every distribution of these engines. It contains
+the upstream license texts and copyright notices, not just license names.
+
+Build: https://github.com/ihxnnxs/opencode-voice/actions/runs/31380639622
+Recipe and sidecar lockfile: ihxnnxs/opencode-voice at
+0938e1a34fd09e7ce4497a18032607f4b346613b.
+
+Contents of ENGINE-LICENSES.zip:
+
+- opencode-voice: original MIT license for the sidecar and release metadata.
+- whisper.cpp: ggml-org/whisper.cpp v1.8.2 at
+  4979e04f5dcaccb36057e059bbaed8a2f5288315, including the license
+  blocks from the compiled miniaudio and stb_vorbis sources.
+- ggml-components: notices for the Mozilla llamafile kernels, YaRN,
+  Arm optimized math routines, and FP16 code referenced by ggml.
+- transcribe.cpp: actual THIRD-PARTY-LICENSES.md from handy-computer/transcribe.cpp
+  at a94e021ef658dc7c788837341a13f6acea3baf3c, covering the vendored
+  ggml and miniz libraries; also the llama.cpp and Unicode data notices
+  for the tokenizer. The Rust bindings and sys crate carry MIT licenses.
+- crates: license files from all crates in the sidecar's release Cargo.lock,
+  including build dependencies. Each .crate matched its Cargo.lock SHA-256.
+  Hound is Apache-2.0, Copyright (C) 2015 Ruud van Asseldonk.
+- rust: the Rust 1.97.1 standard library copyright inventory and license
+  texts from its official toolchain distribution. All five sidecars identify
+  rustc commit 8bab26f4f68e0e26f0bb7960be334d5b520ea452.
+
+These releases contain no models, FFmpeg, Windows CRT DLLs or Apple frameworks.

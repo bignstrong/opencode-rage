@@ -28,6 +28,10 @@ try {
   writeFileSync(join(app, "package.json"), JSON.stringify({ name: "runtime-consumer", private: true, dependencies, overrides }));
   copyFileSync(join(repo, "package-lock.json"), join(app, "package-lock.json"));
   npm(app, ["install", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund", join(root, pack.filename)]);
+  const help = execFileSync(join(app, "node_modules/.bin/rage"), ["--help"], {
+    cwd: app, env: { ...env, PATH: "/nonexistent", RAGE_RUST: "0" }, encoding: "utf8",
+  });
+  assert.match(help, /rage doctor/);
   for (const file of ["runtime-consumer.mjs", "runtime-engine.mjs", "runtime-sox.mjs"]) copyFileSync(join(qa, file), join(app, file));
   for (const mode of ["0", "1"]) {
     const work = join(root, `mode-${mode}`);

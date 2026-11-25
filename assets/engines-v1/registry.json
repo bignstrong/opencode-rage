@@ -1,0 +1,145 @@
+{
+  "schema": "opencode-voice.engines.v1",
+  "generatedAt": "2026-08-10T10:52:24.984Z",
+  "version": "v1.8.2",
+  "engines": {
+    "transcribe-cpp": {
+      "id": "transcribe-cpp",
+      "kind": "cli",
+      "displayName": "opencode-voice-transcribe",
+      "command": "opencode-voice-transcribe",
+      "version": "0.1.3",
+      "assets": {
+        "darwin-arm64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/opencode-voice-transcribe-darwin-arm64.gz",
+          "size": 1455740,
+          "sha256": "3332a00e4608d3b683aa8766d772de88605df0f0419b5651f4f801dbfa647464",
+          "binary": {
+            "name": "opencode-voice-transcribe",
+            "size": 3715072,
+            "sha256": "c358a6f9ccd03a6898e2338e3f3675c4a3cfc9df9d18d6af59215803744b686b",
+            "mode": "755"
+          }
+        },
+        "darwin-x64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/opencode-voice-transcribe-darwin-x64.gz",
+          "size": 1603814,
+          "sha256": "3af071a6fd5537c2c0343426d1f6e90a8349e904ee1130ebead6feaf8c5cafe6",
+          "binary": {
+            "name": "opencode-voice-transcribe",
+            "size": 4231256,
+            "sha256": "c3213d02b72913449383dffe8d1da7ad2b19e94606cf32c96aeaa815e67e1e6f",
+            "mode": "755"
+          }
+        },
+        "linux-arm64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/opencode-voice-transcribe-linux-arm64.gz",
+          "size": 1476942,
+          "sha256": "f07139575e14196e0a4828ad75606a82685b243fad356eba35f09b92bcbc6e7b",
+          "binary": {
+            "name": "opencode-voice-transcribe",
+            "size": 3285704,
+            "sha256": "385220ee61e9e0d83c831053168290a271fc27db3c5e81bead6a8ab317f1831b",
+            "mode": "755"
+          }
+        },
+        "linux-x64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/opencode-voice-transcribe-linux-x64.gz",
+          "size": 1622090,
+          "sha256": "c4d6b69ea272ef3b32f794314df7bb91f47a79b2831fc28f4bebf2ac3aa96b56",
+          "binary": {
+            "name": "opencode-voice-transcribe",
+            "size": 3809768,
+            "sha256": "d3918bb4d2ce00fd482b8aafbb6fb4635e3694d287910c5c4e8b8c7a1515e45c",
+            "mode": "755"
+          }
+        },
+        "win32-x64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/opencode-voice-transcribe-win32-x64.gz",
+          "size": 1288343,
+          "sha256": "17e7f1acfc0e4154bd177d0dccc50d61bae7406c71a31190cfa9d680f909b8b8",
+          "binary": {
+            "name": "opencode-voice-transcribe.exe",
+            "size": 3107328,
+            "sha256": "8029bcf090897bc9a7d9535e9726e208cd4c5f0b32c454cfb3876c7cdae9140c",
+            "mode": "755"
+          }
+        }
+      }
+    },
+    "whisper.cpp": {
+      "id": "whisper.cpp",
+      "kind": "cli",
+      "displayName": "whisper-cli",
+      "command": "whisper-cli",
+      "version": "v1.8.2",
+      "assets": {
+        "darwin-arm64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/whisper-cli-darwin-arm64.gz",
+          "size": 1096785,
+          "sha256": "48893bb2418e4b016ecbe7a80e72076d340786b2e047e71749b8f5b948e7d1e8",
+          "binary": {
+            "name": "whisper-cli",
+            "size": 2783704,
+            "sha256": "81e1ed8b7a1d22046cfd31e445fe1a2498d5ab833fd345e871fa497be5c03d85",
+            "mode": "755"
+          }
+        },
+        "darwin-x64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/whisper-cli-darwin-x64.gz",
+          "size": 1236660,
+          "sha256": "9e69aa14e363be27e05197c4c0241e641211e32885eb882319d0b92df1957035",
+          "binary": {
+            "name": "whisper-cli",
+            "size": 3228872,
+            "sha256": "5493dd7352599a1c68b859db68cf46925aaeefb84527d4868832e680b232a5ba",
+            "mode": "755"
+          }
+        },
+        "linux-arm64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/whisper-cli-linux-arm64.gz",
+          "size": 1063236,
+          "sha256": "52046979dce391b34f572f111e54631063c491b41240817a74ea6470430cd3bc",
+          "binary": {
+            "name": "whisper-cli",
+            "size": 2296960,
+            "sha256": "cbb6408aee957ab114f55db751d8917e1de8282e568bcbe5f309736771143d6f",
+            "mode": "755"
+          }
+        },
+        "linux-x64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/whisper-cli-linux-x64.gz",
+          "size": 1109684,
+          "sha256": "bd5a742ef714fc38466cf2cb4f01c673459f5979c9ec880f3cf6008a50f7da18",
+          "binary": {
+            "name": "whisper-cli",
+            "size": 2552704,
+            "sha256": "740600a8339c90aeeda0d93f44288fcd2d39839cf4e0276698b917c78aab045b",
+            "mode": "755"
+          }
+        },
+        "win32-x64": {
+          "kind": "single-binary-gzip",
+          "url": "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/whisper-cli-win32-x64.gz",
+          "size": 709179,
+          "sha256": "81452b2c26f41db686423040cf2d936b2536d0b5e0417814677e2daa4cb8719b",
+          "binary": {
+            "name": "whisper-cli.exe",
+            "size": 1624576,
+            "sha256": "69d7e6d2e8ba57b0a73217898a784a8868091a792d0a13055703bbfa2ceba66e",
+            "mode": "755"
+          }
+        }
+      }
+    }
+  }
+}

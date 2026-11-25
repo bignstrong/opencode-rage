@@ -14,8 +14,8 @@ use tempfile::{NamedTempFile, TempDir};
 type R<T> = Result<T, Box<dyn Error>>;
 const MIB: u64 = 1 << 20;
 const REGISTRY: &str =
-    "https://github.com/ihxnnxs/opencode-voice/releases/download/v0.2.0/registry.json";
-const REGISTRY_PIN: &str = "4cd542a78b0ad73df5e6befc26eff0539e42b33e48b3b7d0462119f45979da3b";
+    "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/registry.json";
+const REGISTRY_PIN: &str = "d2d7dd0f4921f20fb52d00078c2b0250f31e655aa182a9a983f7d53c55e4b406";
 
 fn text<'a>(v: &'a Value, key: &str) -> R<&'a str> {
     v[key]

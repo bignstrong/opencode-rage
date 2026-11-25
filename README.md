@@ -34,7 +34,7 @@ In `~/.config/opencode/cli.json`, add the absolute path printed by `pwd` to `plu
 
 On macOS the microphone list updates while open. Choose the system input or pin a microphone by name. An iPhone exposed by Continuity works the same way: start recording on the Mac, speak into the phone.
 
-Run `node bin/opencode-voice.js doctor` for recorder and engine diagnostics. The V1 entry remains in `index.js`; V2 loads `src/tui.ts`. Both share `lib/`. Run `npm run check` before changing the plugin.
+Run `./bin/rage doctor` for recorder and engine diagnostics. On macOS the CLI runs the Rust executable directly, without starting Node. On Windows use the portable `opencode-voice` command. OpenCode V2 still loads the TypeScript plugin in `src/tui.ts`. Run `npm run check` before changing the plugin.
 
 ## How Rage works
 

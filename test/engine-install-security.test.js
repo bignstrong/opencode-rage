@@ -19,6 +19,26 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const schema = "opencode-voice.engines.v1";
 const custom = "https://registry.example/registry.json";
 
+test("Rage's pinned release mirrors every original engine and platform", async (t) => {
+  const directory = new URL("../assets/engines-v1/", import.meta.url);
+  const source = await fs.readFile(new URL("upstream-registry.json", directory));
+  assert.equal(hash(source), "4cd542a78b0ad73df5e6befc26eff0539e42b33e48b3b7d0462119f45979da3b");
+  const expected = JSON.parse(source);
+  const release = "https://github.com/bignstrong/opencode-rage/releases/download/engines-v1/";
+  assert.equal(DEFAULT_ENGINE_REGISTRY_URL, `${release}registry.json`);
+  for (const engine of Object.values(expected.engines)) {
+    for (const asset of Object.values(engine.assets)) {
+      asset.url = release + path.posix.basename(new URL(asset.url).pathname);
+    }
+  }
+  const bytes = await fs.readFile(new URL("registry.json", directory));
+  t.mock.method(globalThis, "fetch", async (url) => {
+    assert.equal(url, DEFAULT_ENGINE_REGISTRY_URL);
+    return new Response(bytes);
+  });
+  assert.deepEqual((await loadEngineRegistry()).registry, expected);
+});
+
 test(
   "concurrent imports keep the published binary and its provenance together",
   { skip: process.platform === "win32" },

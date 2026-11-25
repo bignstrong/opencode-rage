@@ -11,9 +11,10 @@ import { gzipSync } from "node:zlib";
 
 if (process.platform !== "darwin") throw Error("CLI parity runs on macOS");
 const repo = fileURLToPath(new URL("../", import.meta.url));
-const core = process.env.RAGE_CORE || path.join(repo, "native/target/release/rage-core");
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rage-cli-fixture-"));
+const launcher = path.join(scratch, "rage");
 try {
+  fs.symlinkSync(path.relative(fs.realpathSync(scratch),path.join(repo,"bin/rage")), launcher);
   let reference = process.env.RAGE_REFERENCE_ROOT;
   if (!reference) {
     reference = path.join(scratch, "reference");
@@ -57,7 +58,7 @@ try {
   const runtime = (rust) => {
     const cases = [];
     const compare = (args, extra = {}, json = false) => {
-      const command = rust ? [core, "cli"] : [process.execPath, path.join(reference,"bin/opencode-voice.js")];
+      const command = rust ? (process.env.RAGE_CORE ? [process.env.RAGE_CORE,"cli"] : [launcher]) : [process.execPath, path.join(reference,"bin/opencode-voice.js")];
       const {status,stdout,stderr,error,signal} = spawnSync(command[0], [...command.slice(1),...args], {
         cwd:scratch,env:{...env,...extra},encoding:"utf8",timeout:20000,
       });

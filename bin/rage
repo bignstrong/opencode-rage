@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+# npm may link this executable from a different directory.
+file=$0
+while [ -L "$file" ]; do
+  link=$(/usr/bin/readlink "$file")
+  case "$link" in /*) file=$link ;; *) file=$(/usr/bin/dirname "$file")/$link ;; esac
+done
+dir=$(/usr/bin/dirname "$file")
+if [ "$(/usr/bin/uname -s)" != Darwin ]; then exec node "$dir/opencode-voice.js" "$@"; fi
+core="$dir/../native/target/release/rage-core"
+if [ ! -x "$core" ]; then echo 'Missing rage-core; run npm run build:native in the Rage checkout.' >&2; exit 1; fi
+exec "$core" cli "$@"

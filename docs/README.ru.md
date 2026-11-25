@@ -26,7 +26,7 @@ OPENCODE_CLI_CONFIG_CONTENT="$(node -p 'JSON.stringify({plugins:[process.cwd()]}
 
 Для постоянного подключения или новой копии:
 
-1. Из корня репозитория выполните `npm ci`, затем `npm run build:native`. Для сборки нужны Cargo и Xcode Command Line Tools. На Mac эта ветка запускает Rust без переменных окружения. Проверка без записи: `node bin/opencode-voice.js doctor`. Если установить зависимости с `--ignore-scripts`, npm не скачает встроенный FFmpeg: понадобится установленный FFmpeg с AVFoundation или SoX для системного входа.
+1. Из корня репозитория выполните `npm ci`, затем `npm run build:native`. Для сборки нужны Cargo и Xcode Command Line Tools. Проверка без записи: `./bin/rage doctor`. На macOS команда запускает Rust без Node. Если установить зависимости с `--ignore-scripts`, npm не скачает встроенный FFmpeg: понадобится установленный FFmpeg с AVFoundation или SoX для системного входа.
 2. В `~/.config/opencode/cli.json` добавьте **абсолютный путь к каталогу** в существующий массив `plugins`. Если там уже есть опубликованная версия плагина, замените её локальной. Вместо `/absolute/path/rage` подставьте вывод `pwd` из корня репозитория:
 
    ```json
