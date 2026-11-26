@@ -1,9 +1,11 @@
+import { RGBA } from "@opentui/core";
 import { rustBinding } from "../../lib/rust-binding.js";
 
 export const stillDots = "···";
 
 export const activityInterval = 170;
 export const activityWidth = 15;
+export const activityOrange = RGBA.fromHex("#ec5b2b");
 export const orbCatalog = {
   cycle: { ru: "Вдох и дождь", en: "Breath and rain" },
   breath: { ru: "Цифровой вдох", en: "Digital breath" },

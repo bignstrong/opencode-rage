@@ -1032,13 +1032,12 @@ test("/orbs applies the selected effect and keeps it after reopening or cancelli
   });
   const command = f.command("voice.orbs");
   await command.run();
-  assert.equal(choices[0].current, "cycle");
+  assert.equal(choices[0].current, "breath");
   assert.deepEqual(
     choices[0].options.map((o) => o.title),
     ["Вдох и дождь", "Цифровой вдох", "Цифровой дождь"],
   );
   assert.equal(f.settings.orb, "rain");
-  assert.equal(f.button.orb, "rain");
   answer = undefined;
   await command.run();
   assert.equal(choices[1].current, "rain");

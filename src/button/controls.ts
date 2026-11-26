@@ -4,11 +4,11 @@ import { createEffect, createMemo, createSignal, onCleanup, type Accessor } from
 import { rustBinding } from "../../lib/rust-binding.js";
 import {
   activityInterval,
+  activityOrange,
   activityWidth,
   centerFrame,
   createActivity,
   stillDots,
-  type ActivityMode,
 } from "./activity.ts";
 
 const labels = {
@@ -40,7 +40,6 @@ type VoiceButtonProps = {
   phase: string;
   locale: "en" | "ru";
   animate: boolean;
-  orb?: ActivityMode;
   startedAt?: number;
   toggle: () => void;
 };
@@ -49,6 +48,7 @@ function activationControl(props: {
   id: "voice-button" | "voice-send";
   enabled: Accessor<boolean>;
   showingActivity?: Accessor<boolean>;
+  foreground?: Accessor<RGBA>;
   content: Accessor<string>;
   width?: Accessor<number>;
   activate: () => void;
@@ -126,7 +126,9 @@ function activationControl(props: {
       props.activate();
     },
     children: jsx("text", {
-      fg: RGBA.defaultForeground(),
+      get fg() {
+        return props.foreground?.() ?? RGBA.defaultForeground();
+      },
       selectable: false,
       wrapMode: "none",
       get attributes() {
@@ -161,7 +163,7 @@ export function ComposerButtons(props: VoiceButtonProps & SendProps) {
     if (phase !== "recording" && phase !== "transcribing") return;
     const moving = props.animate;
     if (!moving && phase !== "recording") return;
-    const next = moving && phase === "transcribing" ? createActivity(props.orb) : undefined;
+    const next = moving && phase === "transcribing" ? createActivity("rain") : undefined;
     const tick = () => (next ? setActivity(next()) : setNow(Date.now()));
     tick();
     const interval = phase === "recording" ? waveInterval : activityInterval;
@@ -242,6 +244,8 @@ export function ComposerButtons(props: VoiceButtonProps & SendProps) {
         enabled: () =>
           native()?.voiceEnabled ?? (props.phase === "idle" || props.phase === "recording"),
         showingActivity: () => props.phase === "transcribing",
+        foreground: () =>
+          props.phase === "transcribing" ? activityOrange : RGBA.defaultForeground(),
         activate: () => props.toggle(),
         content() {
           if (native()) return native().voice as string;

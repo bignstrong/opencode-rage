@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin/tui";
-import { RGBA, type Renderable, type TextareaRenderable } from "@opentui/core";
+import { type Renderable, type TextareaRenderable } from "@opentui/core";
 import { jsx } from "@opentui/solid/jsx-runtime";
 import { createComponent, createEffect, createSignal, onCleanup, Show, untrack } from "solid-js";
 import { VoiceRuntime } from "../lib/engine.js";
@@ -7,7 +7,7 @@ import { rustBinding, useRust } from "../lib/rust-binding.js";
 import { DEFAULT_SETTINGS, getModel, PLUGIN_ID } from "../lib/models.js";
 import { DockedButtons } from "./button/dock.ts";
 import { installAgentActivity } from "./button/agent-activity.ts";
-import { orbCatalog, type ActivityMode } from "./button/activity.ts";
+import { activityOrange, orbCatalog, type ActivityMode } from "./button/activity.ts";
 import { resolveUiLanguage } from "./i18n.ts";
 import { applyRageTheme } from "./preset.ts";
 import { localizeDownloadStatus, ReportedDownloadError, type DownloadStatus } from "./ensure.ts";
@@ -53,7 +53,7 @@ export default Plugin.define({
       normalizeSettings(store as unknown as Parameters<typeof normalizeSettings>[0]);
     const getUiLanguage = () => resolveUiLanguage(store.uiLanguage);
     const getOrb = (): ActivityMode =>
-      Object.hasOwn(orbCatalog, store.orb) ? (store.orb as ActivityMode) : "cycle";
+      Object.hasOwn(orbCatalog, store.orb) ? (store.orb as ActivityMode) : "breath";
     const voiceTitle = () => (getUiLanguage() === "ru" ? "Диктовка" : "Voice");
     const update = async (
       fn: (draft: Parameters<Parameters<typeof updateStore>[0]>[0]) => void,
@@ -563,9 +563,6 @@ export default Plugin.define({
           get animate() {
             return getSettings().voiceAnimation;
           },
-          get orb() {
-            return getOrb();
-          },
           toggle: () => void record(false, true),
           get canSend() {
             return input.mode === "normal" && phase() === "idle" && hasDraft();
@@ -580,14 +577,13 @@ export default Plugin.define({
         let anchor: Renderable;
         createEffect(() => {
           if (input.sessionID && ctx.data.session.status(input.sessionID) === "running") {
-            const orbColor = RGBA.fromHex("#ec5b2b");
             onCleanup(
               installAgentActivity({
                 version: ctx.app.version,
                 renderer: ctx.renderer,
                 anchor: () => anchor,
                 animate: getSettings().voiceAnimation,
-                foreground: () => orbColor,
+                foreground: () => activityOrange,
                 orb: getOrb(),
               }),
             );

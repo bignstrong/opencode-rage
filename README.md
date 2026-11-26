@@ -19,7 +19,7 @@ pwd
 
 Add the directory printed by `pwd` to the existing `plugins` array in `~/.config/opencode/cli.json`. Run `/reload` in an open TUI.
 
-On first activation the plugin sets the global OpenCode theme to **orng**. It preserves light/dark mode and leaves later theme choices alone. New profiles use Russian menus and recognition, Whisper Turbo, the system microphone, and the orange **Digital breath** thinking orb. Dictation stays in the draft. No shortcuts or model downloads are required at startup. Change voice preferences with `/voice-settings` and the animation with `/orbs`; saved preferences take precedence.
+On first activation the plugin sets the global OpenCode theme to **orng**. It preserves light/dark mode and leaves later theme choices alone. New profiles use Russian menus and recognition, Whisper Turbo, and the system microphone. Orange digital rain shows while speech is being transcribed. The agent defaults to orange **Digital breath**. Dictation stays in the draft. No shortcuts or model downloads are required at startup. Change voice preferences with `/voice-settings` and the agent animation with `/orbs`.
 
 ## Install from source (OpenCode V2)
 

@@ -150,7 +150,8 @@ test("composer buttons ignore hover, show keyboard focus, and guard both actions
     assert.equal(await frame(), still);
     setAnimate(true);
     const moving = await frame();
-    assert.match(moving, /^↑\s+·$/u);
+    assert.match(moving, /^↑\s+\S/u);
+    assert.doesNotMatch(moving, /[•●⟨⟩]/u);
     const deadline = performance.now() + 1500;
     let next = moving;
     while (next === moving && performance.now() < deadline) {

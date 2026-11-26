@@ -136,7 +136,7 @@ def run(package, host, work, mode):
                                 seen.add(line[end-width:end])
                 return len(seen) >= 2
 
-            wait(f"orange moving {width}-cell spinner at {columns} columns", animated)
+            wait(f"orange moving {width}-cell breath at {columns} columns", animated)
         release.set()
         wait("idle restoration", lambda: buttons() and not any(interrupt.search(line) for line in screen.display))
         state = home / "state/opencode/latest/tui/plugin.rage.settings.json"
