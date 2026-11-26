@@ -9,6 +9,7 @@ type DockProps = Parameters<typeof ComposerButtons>[0] & {
   version: string;
   renderer: CliRenderer;
   paletteKey: () => string | undefined;
+  onAnchor?: (anchor: Renderable) => void;
 };
 
 export function DockedButtons(props: DockProps) {
@@ -63,7 +64,10 @@ export function DockedButtons(props: DockProps) {
       position: "absolute",
       width: 0,
       height: 0,
-      ref: (node: Renderable) => (anchor = node),
+      ref: (node: Renderable) => {
+        anchor = node;
+        props.onAnchor?.(node);
+      },
     }),
     createComponent(Show, {
       keyed: true,

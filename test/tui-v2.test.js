@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { registerHooks } from "node:module";
 import test from "node:test";
+import { createSignal } from "solid-js";
+import { isServer } from "solid-js/web";
 import { DEFAULT_SETTINGS } from "../lib/models.js";
 import {
   showLanguagePicker,
@@ -18,6 +20,11 @@ import { ensureDownloaded } from "../src/ensure.ts";
 // The visual component itself is rendered in voice-button.test.js.
 const buttonStub = registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === "@opentui/solid/jsx-runtime" && context.parentURL?.endsWith("/src/tui.ts"))
+      return {
+        url: "data:text/javascript,export const jsx = (_, props) => props",
+        shortCircuit: true,
+      };
     if (specifier === "./button/dock.ts" && context.parentURL?.endsWith("/src/tui.ts"))
       return {
         url: "data:text/javascript,export const DockedButtons = props => props",
@@ -298,6 +305,8 @@ test("controller cancel stops runtime", () => {
 });
 
 function draft(before = "", after = "") {
+  const marks = new Map();
+  let nextID = 1;
   return {
     isDestroyed: false,
     focusCalls: 0,
@@ -306,7 +315,31 @@ function draft(before = "", after = "") {
     },
     plainText: before + after,
     editBuffer: new EventEmitter(),
+    extmarks: {
+      registerType: () => 1,
+      create: (options) => {
+        const id = nextID++;
+        marks.set(id, { ...options, id });
+        return id;
+      },
+      get: (id) => {
+        const mark = marks.get(id);
+        // OpenCode 2.4.1 materializes a fresh object from the native buffer on each read.
+        return mark ? { ...mark } : null;
+      },
+      delete: (id) => marks.delete(id),
+      clear: () => marks.clear(),
+    },
+    setText(text) {
+      this.extmarks.clear();
+      this.plainText = text;
+      this.cursorOffset = text.length;
+      this.editBuffer.emit("content-changed");
+    },
     cursorOffset: before.length,
+    gotoBufferEnd() {
+      this.cursorOffset = this.plainText.length;
+    },
     insertText(text) {
       assert.equal(this.isDestroyed, false);
       this.plainText =
@@ -324,6 +357,7 @@ async function mountVoice(
     route = { type: "session", sessionID: "s1" },
     options = {},
     onSend,
+    onWait,
     select,
     confirm,
   } = {},
@@ -334,6 +368,7 @@ async function mountVoice(
   const navigations = [];
   const modals = [];
   const toasts = [];
+  const events = new EventEmitter();
   const location = { directory: "/test/project", workspaceID: "w1" };
   let composer = draft();
   const container = {};
@@ -350,13 +385,27 @@ async function mountVoice(
     mode: "normal",
     showDetails: true,
   };
+  const [currentRoute, setRoute] = createSignal(route);
+  const [sessionStatuses, setSessionStatuses] = createSignal({});
   let button;
+  let renderStatus;
   const runtime = stubRuntime();
   let layerFn;
   let store;
   let cleanup = await tui.setup({
     options: { createRuntime: () => runtime, ready: readyStub, ...options },
     location,
+    data: {
+      session: {
+        status: (id) => sessionStatuses()[id] ?? "idle",
+        pending: { list: () => [] },
+      },
+      on: (name, cb) => {
+        events.on(name, cb);
+        return () => events.off(name, cb);
+      },
+    },
+    theme: { text: { muted: "gray" } },
     renderer,
     storage: {
       store: (_key, { initial }) => {
@@ -379,13 +428,21 @@ async function mountVoice(
           modals.push(params);
         },
       },
-      router: { current: () => route, navigate: (next) => navigations.push(next) },
+      router: { current: currentRoute, navigate: (next) => navigations.push(next) },
       slot: (claim) => {
         if (claim.append === "app") claim.render();
         if (claim.append === "prompt.footer") {
           const component = claim.render(input);
-          if (component?.toggle) button = component;
+          if (component?.toggle) {
+            button = component;
+            component.onAnchor(anchor);
+          }
         }
+        if (claim.append === "prompt.footer.status")
+          renderStatus = () => {
+            const view = claim.render(input)[1];
+            return (typeof view === "function" ? view() : view)?.children;
+          };
         return () => {};
       },
     },
@@ -400,6 +457,7 @@ async function mountVoice(
           sends.push(params);
           await onSend?.(sends.length);
         },
+        wait: async ({ sessionID }, { signal }) => onWait?.(sessionID, signal),
       },
     },
   });
@@ -418,6 +476,7 @@ async function mountVoice(
   const command = (id) => layerFn().commands.find((cmd) => cmd.id === id);
   return {
     command,
+    events,
     layer: layerFn,
     settings: store.state,
     sends,
@@ -425,14 +484,17 @@ async function mountVoice(
     location,
     toasts,
     runtime,
+    setSessionStatus: (id, status) => setSessionStatuses((all) => ({ ...all, [id]: status })),
     dispose,
     button,
+    status: renderStatus,
     input,
     get composer() {
       return composer;
     },
     move(next, nextComposer) {
       route = next;
+      setRoute(next);
       composer = nextComposer;
       composer.parent = { parent: { parent: container } };
       renderer.currentFocusedRenderable = composer;
@@ -456,6 +518,415 @@ test("plugin unload waits for the recorder to close and release the take", async
   closing.resolve();
   await done;
   assert.equal(unloaded, true);
+});
+
+function wakeWorker(f) {
+  const runs = [];
+  f.runtime.listen = (settings, emit, signal) => {
+    const done = Promise.withResolvers();
+    signal.addEventListener("abort", () => setImmediate(done.resolve), { once: true });
+    runs.push({ settings, emit, signal, done });
+    return done.promise;
+  };
+  return runs;
+}
+
+function say(run, id, text) {
+  run.emit({ event: "heard", id });
+  run.emit({ event: "text", id, text });
+}
+
+const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+test("/rage-auto sends only final nonblank speech once, with no confirmation", async (t) => {
+  const f = await mountVoice(t, { confirm: () => assert.fail("must not confirm") });
+  const runs = wakeWorker(f);
+  const auto = f.command("voice.auto");
+  assert.equal(auto.slash.name, "rage-auto");
+  await auto.run();
+  const [run] = runs;
+  run.emit({ event: "waiting" });
+  assert.equal(f.status(), "Auto-send · Waiting for «Рейдж»");
+  run.emit({ event: "text", id: 1, text: "not armed" });
+  say(run, 1, "   ");
+  assert.deepEqual(f.sends, []);
+  run.emit({ event: "heard", id: 2 });
+  assert.deepEqual(f.sends, []);
+  run.emit({ event: "text", id: 2, text: "  send this  " });
+  assert.deepEqual(f.sends, [{ sessionID: "s1", text: "send this", delivery: "queue" }]);
+  run.emit({ event: "text", id: 2, text: "duplicate" });
+  say(run, 2, "duplicate");
+  await f.command("voice.listen").run();
+  assert.equal(run.signal.aborted, false);
+  assert.deepEqual(f.dispatched, []);
+  assert.equal(f.composer.plainText, "");
+  await auto.run();
+  assert.equal(run.signal.aborted, true);
+  assert.equal(f.sends.length, 1);
+});
+
+test("/rage-auto drains same-session FIFO only when idle, including the POST acknowledgement gap", async (t) => {
+  const finishFirst = Promise.withResolvers();
+  const waitEntered = Promise.withResolvers();
+  let waits = 0;
+  const f = await mountVoice(t, {
+    onWait: (id) => {
+      assert.equal(id, "s1");
+      if (++waits === 1) {
+        waitEntered.resolve();
+        return finishFirst.promise;
+      }
+    },
+  });
+  const runs = wakeWorker(f);
+  f.setSessionStatus("s1", "running");
+  await f.command("voice.auto").run();
+  const [run] = runs;
+  say(run, 1, "first");
+  say(run, 2, "second");
+  assert.deepEqual(f.sends, []);
+  f.setSessionStatus("s2", "idle");
+  await f.focus();
+  assert.deepEqual(f.sends, []);
+  f.setSessionStatus("s1", "idle");
+  if (isServer) await f.focus(); // Node's no-op Solid effects; browser must resume without focus.
+  await waitEntered.promise;
+  f.events.emit("session.inbox.enqueued", {
+    data: { sessionID: "s1", item: { type: "user" } },
+  });
+  say(run, 3, "third");
+  assert.deepEqual(
+    f.sends.map(({ text }) => text),
+    ["first"],
+  );
+  f.setSessionStatus("s1", "running");
+  finishFirst.resolve();
+  await nextTurn();
+  assert.deepEqual(
+    f.sends.map(({ text }) => text),
+    ["first"],
+  );
+  f.setSessionStatus("s1", "idle");
+  if (isServer) await f.focus();
+  await nextTurn();
+  assert.deepEqual(
+    f.sends.map(({ text }) => text),
+    ["first", "second", "third"],
+  );
+  assert.ok(f.sends.every(({ sessionID, delivery }) => sessionID === "s1" && delivery === "queue"));
+});
+
+for (const action of ["switch", "toggle", "stop", "dispose"]) {
+  test(`/rage-auto drops its busy queue on ${action}`, async (t) => {
+    const f = await mountVoice(t);
+    const runs = wakeWorker(f);
+    f.setSessionStatus("s1", "running");
+    const auto = f.command("voice.auto");
+    await auto.run();
+    say(runs[0], 1, "do not send");
+    if (action === "switch") {
+      f.move({ type: "session", sessionID: "s2" }, draft());
+      if (isServer) await f.focus();
+      assert.equal(runs[0].signal.aborted, true);
+      f.move({ type: "session", sessionID: "s1" }, draft());
+    } else if (action === "toggle") await auto.run();
+    else if (action === "stop") await f.command("voice.stop").run();
+    else await f.dispose();
+    f.setSessionStatus("s1", "idle");
+    await f.focus();
+    say(runs[0], 2, "late frame");
+    assert.deepEqual(f.sends, []);
+    assert.equal(f.composer.plainText, "");
+  });
+}
+
+test("/rage-auto appends to initial and newly typed drafts, including while queued, but never to a replacement", async (t) => {
+  const f = await mountVoice(t);
+  const runs = wakeWorker(f);
+  await f.command("voice.auto").run();
+  const [run] = runs;
+  f.composer.setText("initial");
+  f.composer.cursorOffset = 0;
+  say(run, 1, "one");
+  assert.equal(f.composer.plainText, "initial one ");
+  f.composer.setText("");
+  run.emit({ event: "heard", id: 2 });
+  f.composer.insertText("typed");
+  run.emit({ event: "text", id: 2, text: "two" });
+  assert.equal(f.composer.plainText, "typed two ");
+  f.composer.setText("");
+  f.setSessionStatus("s1", "running");
+  say(run, 3, "three");
+  f.composer.insertText("while queued");
+  f.setSessionStatus("s1", "idle");
+  await f.focus();
+  assert.equal(f.composer.plainText, "while queued three ");
+  run.emit({ event: "heard", id: 4 });
+  f.composer.setText("replacement");
+  run.emit({ event: "text", id: 4, text: "stale" });
+  assert.equal(f.composer.plainText, "replacement");
+  assert.deepEqual(f.sends, []);
+});
+
+test("/rage-auto preserves definite rejection in its original draft and never retries it", async (t) => {
+  const send = Promise.withResolvers();
+  const f = await mountVoice(t, { onSend: () => send.promise });
+  const runs = wakeWorker(f);
+  await f.command("voice.auto").run();
+  say(runs[0], 1, "unsent");
+  const other = draft("Dialog");
+  await f.focus(other);
+  send.reject({ _tag: "InvalidRequestError", message: "Prompt rejected" });
+  await nextTurn();
+  assert.equal(other.plainText, "Dialog");
+  assert.equal(f.toasts.at(-1).message, "Prompt rejected");
+  await f.focus();
+  assert.equal(f.composer.plainText, "unsent ");
+  assert.equal(f.sends.length, 1);
+});
+
+test("/rage-auto does not restore or retry a send with an unknown outcome", async (t) => {
+  const f = await mountVoice(t, {
+    onSend: () => {
+      throw Error("Disconnected");
+    },
+  });
+  const runs = wakeWorker(f);
+  await f.command("voice.auto").run();
+  say(runs[0], 1, "possibly sent");
+  await nextTurn();
+  await f.focus();
+  assert.match(f.toasts.at(-1).message, /Send not confirmed/);
+  assert.equal(f.composer.plainText, "");
+  assert.equal(f.sends.length, 1);
+});
+
+test("/rage-auto dispose releases an in-flight draft guard and ignores a late rejection", async (t) => {
+  const admission = Promise.withResolvers();
+  const f = await mountVoice(t, { onSend: () => admission.promise });
+  const runs = wakeWorker(f);
+  await f.command("voice.auto").run();
+  const baseline = f.composer.editBuffer.listenerCount("content-changed");
+  say(runs[0], 1, "already submitted to host");
+  say(runs[0], 2, "still queued");
+  assert.equal(f.composer.editBuffer.listenerCount("content-changed"), baseline + 2);
+  await f.dispose();
+  assert.equal(f.composer.editBuffer.listenerCount("content-changed"), 0);
+  admission.reject({ _tag: "InvalidRequestError", message: "Late rejection" });
+  await nextTurn();
+  assert.equal(f.sends.length, 1);
+  assert.equal(f.composer.plainText, "");
+  assert.ok(!f.toasts.some(({ message }) => message === "Late rejection"));
+});
+
+test("wake hit belongs to the original draft, even when the same session and editor are reused", async (t) => {
+  const f = await mountVoice(t, { settings: { autoSubmit: true } });
+  const runs = wakeWorker(f);
+  await f.command("voice.listen").run();
+  const [run] = runs;
+  f.composer.setText("draft A");
+  for (const [i, boundary] of ["submit", "history", "remount", "enqueued", "erase"].entries()) {
+    const id = i + 1;
+    run.emit({ event: "heard", id });
+    if (boundary === "submit") {
+      f.composer.setText(""); // The host clears locally before the inbox event.
+      f.composer.insertText("draft B");
+    } else if (boundary === "history") {
+      f.composer.setText(f.composer.plainText); // Different draft, identical characters.
+    } else if (boundary === "remount") {
+      f.move({ type: "session", sessionID: "s1" }, draft("draft B"));
+    } else if (boundary === "erase") {
+      f.composer.plainText = ""; // Delete selection without calling the host's reset.
+      f.composer.cursorOffset = 0;
+      f.composer.editBuffer.emit("content-changed");
+      f.composer.insertText("draft B");
+    } else {
+      await f.focus(draft("Dialog"));
+      run.emit({ event: "text", id, text: "stale queued" });
+      f.events.emit("session.inbox.enqueued", {
+        data: { sessionID: "s1", item: { type: "user" } },
+      });
+      await f.focus();
+    }
+    run.emit({ event: "text", id, text: "stale" });
+    await f.focus();
+    assert.equal(f.composer.plainText, "draft B", boundary);
+  }
+  // New hits remain usable. Typing, moving the cursor, or another session sending is not replacement.
+  run.emit({ event: "heard", id: 6 });
+  f.composer.insertText(" edited");
+  f.events.emit("session.inbox.enqueued", { data: { sessionID: "other", item: { type: "user" } } });
+  f.composer.cursorOffset = 0;
+  run.emit({ event: "text", id: 6, text: "one" });
+  run.emit({ event: "heard", id: 7 });
+  run.emit({ event: "text", id: 7, text: "two" });
+  assert.equal(f.composer.plainText, "one two draft B edited");
+  assert.deepEqual(f.sends, []);
+  assert.deepEqual(f.dispatched, []);
+});
+
+test("wake opt-in requires an open session and excludes all manual capture paths until worker exit", async (t) => {
+  const f = await mountVoice(t, {
+    route: { type: "home" },
+    settings: { mic: ":pinned", autoSubmit: true },
+  });
+  const runs = wakeWorker(f);
+  const toggle = f.command("voice.listen");
+  assert.equal(toggle.slash.name, "rage-listen");
+  await toggle.run();
+  assert.equal(runs.length, 0);
+  f.move({ type: "session", sessionID: "s1" }, draft("Original "));
+  await f.command("voice.record").run();
+  await toggle.run();
+  assert.equal(runs.length, 0);
+  await f.command("voice.stop").run();
+  // The fake runtime's cancel only marks cancelled.
+  f.runtime.recording = false;
+  await toggle.run();
+  const [run] = runs;
+  assert.equal(run.settings.mic, ":pinned");
+  run.emit({ event: "level", level: 2 });
+  assert.equal(f.status(), "Starting listener…");
+  run.emit({ event: "waiting" });
+  assert.equal(f.status(), "Waiting for «Рейдж»");
+  run.emit({ event: "level", level: 0 });
+  assert.equal(f.status(), "Waiting for «Рейдж» · Silence ░░░");
+  run.emit({ event: "level", level: 2 });
+  assert.equal(f.status(), "Waiting for «Рейдж» · Sound ██░");
+  run.emit({ event: "text", id: 1, text: "before trigger" });
+  run.emit({ event: "heard", id: 1 });
+  run.emit({ event: "level", level: 3 });
+  assert.equal(f.status(), "Wake word heard. Listening for the command");
+  run.emit({ event: "text", id: 1, text: "one" });
+  run.emit({ event: "heard", id: 1 });
+  run.emit({ event: "text", id: 1, text: "duplicate" });
+  run.emit({ event: "waiting" });
+  assert.equal(f.status(), "Waiting for «Рейдж»");
+  await f.command("voice.submit").run();
+  f.button.toggle();
+  assert.equal(f.runtime.recording, false);
+  const closing = toggle.run();
+  assert.equal(run.signal.aborted, true);
+  run.emit({ event: "level", level: 3 });
+  assert.equal(f.status(), "Stopping listener…");
+  await f.command("voice.record").run();
+  assert.equal(f.runtime.recording, false);
+  run.emit({ event: "heard", id: 2 });
+  run.emit({ event: "text", id: 2, text: "after stop" });
+  run.done.resolve();
+  await closing;
+  assert.equal(f.status(), undefined);
+  assert.equal(f.composer.plainText, "Original one ");
+  assert.deepEqual(f.sends, []);
+  assert.deepEqual(f.dispatched, []);
+  await f.command("voice.record").run();
+  assert.equal(f.runtime.recording, true);
+});
+
+test("wake meter labels silence and signal in Russian", async (t) => {
+  const f = await mountVoice(t, { settings: { uiLanguage: "ru" } });
+  const runs = wakeWorker(f);
+  await f.command("voice.listen").run();
+  runs[0].emit({ event: "waiting" });
+  runs[0].emit({ event: "level", level: 0 });
+  assert.equal(f.status(), "Жду «Рейдж» · Тихо ░░░");
+  runs[0].emit({ event: "level", level: 3 });
+  assert.equal(f.status(), "Жду «Рейдж» · Есть звук ███");
+});
+
+test("wake drafts wait for their normal editor; session change invalidates queued and late frames", async (t) => {
+  const f = await mountVoice(t, { settings: { autoSubmit: true } });
+  const runs = wakeWorker(f);
+  await f.command("voice.listen").run();
+  const [run] = runs;
+  const other = draft("Dialog");
+  await f.focus(other);
+  run.emit({ event: "heard", id: 1 });
+  run.emit({ event: "text", id: 1, text: "kept" });
+  assert.equal(other.plainText, "Dialog");
+  await f.focus();
+  assert.equal(f.composer.plainText, "kept ");
+  f.input.mode = "shell";
+  run.emit({ event: "heard", id: 2 });
+  run.emit({ event: "text", id: 2, text: "stale" });
+  const original = f.composer;
+  f.move({ type: "session", sessionID: "s2" }, draft("Other"));
+  f.input.mode = "normal";
+  await f.focus();
+  assert.equal(run.signal.aborted, true);
+  run.emit({ event: "heard", id: 3 });
+  run.emit({ event: "text", id: 3, text: "late" });
+  assert.equal(f.composer.plainText, "Other");
+  run.done.resolve();
+  f.move({ type: "session", sessionID: "s1" }, original);
+  await f.focus();
+  assert.equal(original.plainText, "kept ");
+  assert.equal(runs.length, 1);
+  assert.deepEqual(f.sends, []);
+});
+
+test(
+  "route change stops an idle listener without needing focus or another audio frame",
+  { skip: isServer && "run with --conditions=browser for reactive Solid" },
+  async (t) => {
+    const f = await mountVoice(t);
+    const runs = wakeWorker(f);
+    await f.command("voice.listen").run();
+    const [run] = runs;
+    run.emit({ event: "waiting" });
+    f.move({ type: "home" }, draft());
+    assert.equal(run.signal.aborted, true);
+    run.done.resolve();
+    f.move({ type: "session", sessionID: "s1" }, draft());
+    run.emit({ event: "heard", id: 1 });
+    run.emit({ event: "text", id: 1, text: "stale" });
+    assert.equal(f.composer.plainText, "");
+    assert.equal(runs.length, 1);
+  },
+);
+
+test("/voice-stop invalidates queued wake text even after clean file EOF", async (t) => {
+  const f = await mountVoice(t);
+  const runs = wakeWorker(f);
+  await f.command("voice.listen").run();
+  const [run] = runs;
+  await f.focus(draft("Dialog"));
+  run.emit({ event: "heard", id: 1 });
+  run.emit({ event: "text", id: 1, text: "queued" });
+  run.done.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  await f.command("voice.stop").run();
+  await f.focus();
+  assert.equal(f.composer.plainText, "");
+  assert.deepEqual(f.dispatched, []);
+  assert.deepEqual(f.sends, []);
+});
+
+test("wake worker error never retries or changes input; dispose invalidates delivery and joins the next worker", async (t) => {
+  const f = await mountVoice(t, { settings: { mic: ":My iPhone" } });
+  const runs = wakeWorker(f);
+  await f.command("voice.listen").run();
+  runs[0].done.reject(new Error("Microphone disconnected"));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(f.toasts.at(-1).message, "Microphone disconnected");
+  assert.equal(f.settings.mic, ":My iPhone");
+  assert.equal(runs.length, 1);
+  await f.command("voice.listen").run();
+  const run = runs[1];
+  await f.focus(draft("Dialog"));
+  run.emit({ event: "heard", id: 1 });
+  run.emit({ event: "text", id: 1, text: "queued" });
+  let finished = false;
+  const closing = f.dispose().then(() => (finished = true));
+  await f.focus();
+  assert.equal(finished, false);
+  assert.equal(run.signal.aborted, true);
+  run.emit({ event: "heard", id: 2 });
+  run.emit({ event: "text", id: 2, text: "late" });
+  run.done.resolve();
+  await closing;
+  assert.equal(f.composer.plainText, "");
+  assert.deepEqual(f.sends, []);
 });
 
 test("send button dispatches native submit without rebuilding or clearing the draft", async (t) => {
@@ -579,7 +1050,15 @@ test("V2 registers /voice without a default shortcut and inserts at the live cur
   assert.equal(f.layer().mode, "global");
   assert.deepEqual(
     f.layer().commands.map((c) => c.id),
-    ["voice.record", "voice.submit", "voice.stop", "voice.settings", "voice.orbs"],
+    [
+      "voice.record",
+      "voice.submit",
+      "voice.stop",
+      "voice.settings",
+      "voice.orbs",
+      "voice.listen",
+      "voice.auto",
+    ],
   );
   assert.equal(f.command("voice.orbs").slash.name, "orbs");
   const record = f.command("voice.record");

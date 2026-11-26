@@ -14,7 +14,7 @@ const repo = fileURLToPath(new URL("../", import.meta.url));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rage-cli-fixture-"));
 const launcher = path.join(scratch, "rage");
 try {
-  fs.symlinkSync(path.relative(fs.realpathSync(scratch),path.join(repo,"bin/rage")), launcher);
+  fs.symlinkSync(path.relative(fs.realpathSync(scratch),path.join(repo,"bin/setup-opencode")), launcher);
   let reference = process.env.RAGE_REFERENCE_ROOT;
   if (!reference) {
     reference = path.join(scratch, "reference");

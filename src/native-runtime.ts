@@ -4,7 +4,7 @@ import { delimiter, join } from "node:path";
 import { getBundledEngineDir, microphoneLabel, resolveCommand } from "../lib/engine.js";
 import { rustBinding } from "../lib/rust-binding.js";
 import { getAudioDir, getCacheDir, getModel, getModelPath } from "../lib/models.js";
-import { listInputs, startTake, transcribe } from "../rage/core.ts";
+import { listen, listInputs, startTake, transcribe, type ListenEvent } from "../rage/core.ts";
 import type { VoiceSettings } from "./settings.ts";
 
 type Take = Awaited<ReturnType<typeof startTake>>;
@@ -31,11 +31,16 @@ export class NativeRuntime {
   private owned = new Map<string, Recording>();
   private job?: { controller: AbortController; done: Promise<string> };
   private options: Record<string, unknown>;
+  private onTrainingError: (message: string) => void;
   pendingSubmit = false;
   interruptedMicrophone = false;
 
-  constructor(options: Record<string, unknown> = {}) {
+  constructor(
+    options: Record<string, unknown> = {},
+    onTrainingError = (message: string) => console.warn(message),
+  ) {
     this.options = options;
+    this.onTrainingError = onTrainingError;
   }
 
   isRecording() {
@@ -102,6 +107,14 @@ export class NativeRuntime {
     const paths = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(delimiter);
     return {
       ...process.env,
+      RAGE_WAKE_PROFILE:
+        process.env.RAGE_WAKE_PROFILE ??
+        (typeof this.options.wakeProfile === "string" ? this.options.wakeProfile : undefined),
+      RAGE_TRAINING_DIR:
+        process.env.RAGE_SAVE_TAKES === "0"
+          ? undefined
+          : (process.env.RAGE_TRAINING_DIR ??
+            (typeof this.options.trainingDir === "string" ? this.options.trainingDir : undefined)),
       PATH: paths(
         getBundledEngineDir("whisper-cli", options),
         getBundledEngineDir("opencode-voice-transcribe", options),
@@ -127,6 +140,7 @@ export class NativeRuntime {
           return null;
         }
         this.owned.set(recording.path, recording);
+        if (recording.trainingError) this.onTrainingError(recording.trainingError);
         this.interruptedMicrophone ||= recording.interrupted;
         return recording.path;
       } finally {
@@ -145,29 +159,16 @@ export class NativeRuntime {
     const controller = new AbortController();
     const recording = this.owned.get(path);
     const decode = async () => {
-      const file = getModelPath(model, this.options, settings);
-      const core = rustBinding();
-      const plan = core.decodePlan({
-        engine: model.engine,
-        modelName: model.name,
-        modelPath: file,
-        binary: resolveCommand(core.decoderCommand(model.engine), this.commands(settings)),
-        language: settings.language,
-        timeoutMs: Number(this.options.transcriptionTimeoutMs),
-        cleanup: settings.voiceEnhance !== false,
-        cutoffHz: Number(settings.cleanupCutoffHz),
-        interrupted: recording?.interrupted,
-      });
+      const { file, plan, env } = this.decoder(model, settings, recording?.interrupted);
       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(plan.timeoutMs)]);
-      return transcribe(path, { model: file, language: plan.language }, signal, {
-        ...this.env(settings),
-        OPENCODE_VOICE_DIR: getCacheDir(this.options, settings),
-        [plan.engineKey]: plan.binary,
-        RAGE_FFMPEG: this.ffmpeg(settings) || "",
-        RAGE_CLEANUP_FILTER: plan.cleanupFilter,
-        RAGE_ENGINE: model.engine,
-        RAGE_RECOVER_WAV: plan.recoverWav,
-      });
+      const training = recording?.training;
+      return transcribe(
+        path,
+        { model: file, language: plan.language },
+        signal,
+        env,
+        training && { ...training, onError: this.onTrainingError },
+      );
     };
     const job = { controller, done: decode() };
     this.job = job;
@@ -181,6 +182,43 @@ export class NativeRuntime {
       if (this.job === job) this.job = undefined;
       await this.cleanupRecording(path);
     }
+  }
+
+  private decoder(
+    model: ReturnType<typeof getModel>,
+    settings: Partial<VoiceSettings>,
+    interrupted?: boolean,
+  ) {
+    const file = getModelPath(model, this.options, settings);
+    const core = rustBinding();
+    const plan = core.decodePlan({
+      engine: model.engine,
+      modelName: model.name,
+      modelPath: file,
+      binary: resolveCommand(core.decoderCommand(model.engine), this.commands(settings)),
+      language: settings.language,
+      timeoutMs: Number(this.options.transcriptionTimeoutMs),
+      cleanup: settings.voiceEnhance !== false,
+      cutoffHz: Number(settings.cleanupCutoffHz),
+      interrupted,
+    });
+    const env = {
+      ...this.env(settings),
+      OPENCODE_VOICE_DIR: getCacheDir(this.options, settings),
+      [plan.engineKey]: plan.binary,
+      RAGE_FFMPEG: this.ffmpeg(settings) || "",
+      RAGE_CLEANUP_FILTER: plan.cleanupFilter,
+      RAGE_ENGINE: model.engine,
+      RAGE_RECOVER_WAV: plan.recoverWav,
+    };
+    return { file, plan, env };
+  }
+
+  async listen(settings: VoiceSettings, update: (event: ListenEvent) => void, signal: AbortSignal) {
+    const { file, plan, env } = this.decoder(getModel(settings.model), settings, false);
+    const wav = process.env.RAGE_LISTEN_WAV;
+    const source = wav === undefined ? { input: settings.mic || "default" } : { wav };
+    await listen(source, plan.language, file, update, signal, env, this.onTrainingError);
   }
 
   async cleanupRecording(path: string) {

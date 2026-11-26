@@ -23,12 +23,12 @@ try {
   const [pack] = JSON.parse(npm(repo, ["pack", "--ignore-scripts", "--pack-destination", root, "--json"]));
   // Seed only dependencies from the checkout. Install the plugin itself from the tarball.
   execFileSync("/bin/cp", ["-cR", join(repo, "node_modules"), join(app, "node_modules")]);
-  assert.throws(() => realpathSync(join(app, "node_modules/@bignstrong/rage")), { code: "ENOENT" });
+  assert.throws(() => realpathSync(join(app, "node_modules/@bignstrong/setup-opencode")), { code: "ENOENT" });
   const { dependencies, overrides } = JSON.parse(readFileSync(join(repo, "package.json")));
   writeFileSync(join(app, "package.json"), JSON.stringify({ name: "runtime-consumer", private: true, dependencies, overrides }));
   copyFileSync(join(repo, "package-lock.json"), join(app, "package-lock.json"));
   npm(app, ["install", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund", join(root, pack.filename)]);
-  const help = execFileSync(join(app, "node_modules/.bin/rage"), ["--help"], {
+  const help = execFileSync(join(app, "node_modules/.bin/setup-opencode"), ["--help"], {
     cwd: app, env: { ...env, PATH: "/nonexistent", RAGE_RUST: "0" }, encoding: "utf8",
   });
   assert.match(help, /rage doctor/);

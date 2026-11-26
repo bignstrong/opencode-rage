@@ -105,18 +105,68 @@ export async function watchInputs(update: (names: string[]) => void, signal: Abo
   if (!signal.aborted) throw error ?? new Error('Наблюдение за микрофонами остановлено')
 }
 
+export type InputLevel = 0 | 1 | 2 | 3
+export type ListenEvent = { event: 'waiting' } | { event: 'level'; level: InputLevel } | { event: 'heard'; id: number } | { event: 'text'; id: number; text: string }
+
+export async function listen(source: { wav: string } | { input: string }, language: string, model: string,
+  update: (event: ListenEvent) => void, signal: AbortSignal, env: NodeJS.ProcessEnv = recorderEnv(),
+  onTrainingError = (message: string) => console.warn(message)) {
+  signal.throwIfAborted()
+  const args = 'wav' in source ? ['--wav', source.wav] : ['--input', source.input]
+  if (!args[1]?.trim()) throw new Error(`Missing ${args[0]} value`)
+  const dir = await mkdtemp(join(tmpdir(), 'rage-listen-'))
+  try {
+    const worker = launch(['listen', ...args, language, model], value => {
+      if (typeof value !== 'object' || !value || !('event' in value)) throw unexpected()
+      if (value.event === 'waiting') return update({ event: 'waiting' })
+      if (value.event === 'training_error' && 'message' in value) return onTrainingError(string(value.message))
+      if (value.event === 'level') {
+        if (!('level' in value) || (value.level !== 0 && value.level !== 1 && value.level !== 2 && value.level !== 3)) throw unexpected()
+        return update({ event: 'level', level: value.level })
+      }
+      if (!('id' in value) || typeof value.id !== 'number' || !Number.isSafeInteger(value.id) || value.id <= 0) throw unexpected()
+      if (value.event === 'heard') return update({ event: 'heard', id: value.id })
+      if (value.event !== 'text' || !('text' in value) || typeof value.text !== 'string') throw unexpected()
+      update({ event: 'text', id: value.id, text: value.text })
+    }, { signal, gracefulAbort: 'cancel\n', env: { ...env, TMPDIR: dir } })
+    const error = await worker.done
+    if (!signal.aborted && error) throw error
+    if (!signal.aborted && 'input' in source) throw new Error('Microphone disconnected')
+  } finally { await rm(dir, { recursive: true, force: true }) }
+}
+
 export async function ensureDefaultModel(signal: AbortSignal): Promise<string> {
   return string(await result(['ensure-model'], signal))
 }
 
 export async function transcribe(path: string, settings: { language: string; model: string }, signal: AbortSignal,
-  env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  env: NodeJS.ProcessEnv = process.env, training?: { id: string; directory: string; onError: (message: string) => void }): Promise<string> {
   signal.throwIfAborted()
   const args = ['transcribe', path, settings.language || 'auto']
   if (settings.model && settings.model !== 'default') args.push(settings.model)
   // Killing the native process group also kills whisper, bypassing native temp-file destructors.
   const dir = await mkdtemp(join(tmpdir(), 'rage-stt-'))
-  try { return string(await result(args, signal, { ...env, TMPDIR: dir })) }
+  const workerEnv = {
+    ...env, TMPDIR: dir, RAGE_TRAINING_TAKE_ID: training?.id,
+    ...(training && { RAGE_TRAINING_DIR: training.directory }),
+  }
+  try {
+    const value = await result(args, signal, workerEnv)
+    if (training && typeof value === 'object' && value && 'text' in value && 'training_error' in value) {
+      training.onError(string(value.training_error))
+      return string(value.text)
+    }
+    return string(value)
+  } catch (error) {
+    if (training && signal.reason?.name === 'TimeoutError') {
+      try {
+        await result(['training-asr-timeout', ...args.slice(1)], AbortSignal.timeout(2000), workerEnv)
+      } catch (failure) {
+        training.onError(`RAGE_TRAINING_DIR: ${failure instanceof Error ? failure.message : String(failure)}`)
+      }
+    }
+    throw error
+  }
   finally { await rm(dir, { recursive: true, force: true }) }
 }
 
@@ -134,6 +184,8 @@ export async function startTake(input: string | null, onLost: () => void, signal
   try {
     let ready = false
     let finished: boolean | undefined
+    let trainingId: string | undefined
+    let trainingError: string | undefined
     let stopping = false
     let canceled = false
     let opened!: () => void
@@ -143,6 +195,11 @@ export async function startTake(input: string | null, onLost: () => void, signal
       if (value.event === 'ready' && !ready && finished === undefined) { ready = true; opened(); return }
       if (value.event !== 'finished' || !('interrupted' in value) || typeof value.interrupted !== 'boolean' || finished !== undefined) throw unexpected()
       finished = value.interrupted || !stopping
+      if ('training_error' in value) trainingError = string(value.training_error)
+      if ('training_id' in value) {
+        trainingId = string(value.training_id)
+        if (!/^take-[a-zA-Z0-9]{16}$/.test(trainingId)) throw unexpected()
+      }
     }, { signal, gracefulAbort: 'cancel\n', env })
     const timeout = setTimeout(recorder.kill, 15000)
     const hasAudio = async () => (await stat(path).catch(() => undefined))?.size
@@ -163,7 +220,10 @@ export async function startTake(input: string | null, onLost: () => void, signal
           const error = await ended
           signal?.throwIfAborted()
           if (canceled || !await hasAudio()) throw error ?? new Error('Запись пуста')
-          return { path, interrupted: !ready || !!error || finished !== false, dispose }
+          const interrupted = !ready || !!error || finished !== false
+          const directory = env.RAGE_TRAINING_DIR
+          const training = !interrupted && trainingId && directory ? { id: trainingId, directory } : undefined
+          return { path, interrupted, dispose, training, trainingError }
         } catch (cause) { await dispose(); throw cause }
       },
       async cancel() {

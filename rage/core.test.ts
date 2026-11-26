@@ -5,13 +5,13 @@ import { dirname, join } from 'node:path'
 import { after, before, beforeEach, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { ensureDefaultModel, listInputs, startTake, transcribe, watchInputs } from './core.ts'
+import { ensureDefaultModel, listen, listInputs, startTake, transcribe, watchInputs, type ListenEvent } from './core.ts'
 import type { Plugin } from '@opencode/plugin/tui'
 import type { KeymapLayer } from '@opencode/plugin/tui/context'
 import tui from '../src/tui.ts'
 
 let root: string, log: string
-const previous = Object.fromEntries(['RAGE_RUST', 'RAGE_CORE', 'RAGE_FFMPEG', 'RAGE_FIXTURE', 'RAGE_LOG', 'TMPDIR'].map(key => [key, process.env[key]]))
+const previous = Object.fromEntries(['RAGE_RUST', 'RAGE_CORE', 'RAGE_FFMPEG', 'RAGE_FIXTURE', 'RAGE_LOG', 'TMPDIR', 'RAGE_LISTEN_WAV'].map(key => [key, process.env[key]]))
 before(async () => {
   root = await mkdtemp(join(tmpdir(), 'rage-adapter-test-'))
   log = join(root, 'log')
@@ -30,6 +30,20 @@ if (cmd === 'devices') {
 } else if (cmd === 'watch') {
   frame([]); frame(['Диктофон'])
   process.stdin.resume().on('end', () => log(['watch closed']))
+} else if (cmd === 'listen') {
+  fs.writeFileSync(process.env.TMPDIR + '/unfinished.wav', 'fixture audio')
+  if (mode === 'malformed') frame({event:'text', id:'1', text:'bad id'})
+  else if (mode === 'bad level') frame({event:'level', level:Number(args[1])})
+  else {
+    frame({event:'waiting'})
+    for (const level of [0, 1, 2, 3]) frame({event:'level', level})
+    frame({event:'heard', id:1})
+    frame({event:'text', id:1, text:'мой текст'})
+    if (mode === 'training') frame({event:'training_error', message:'training disk full'})
+    if (args[0] === '--input' && mode !== 'lost') {
+      process.stdin.on('data', chunk => log([String(chunk).trim()]))
+    }
+  }
 } else if (cmd === 'record') {
   if (mode === 'missing') { console.error('Микрофон отключён'); process.exit(1) }
   fs.writeFileSync(args[0], 'fixture audio')
@@ -40,11 +54,19 @@ if (cmd === 'devices') {
   process.stdin.setEncoding('utf8').on('data', chunk => command += chunk).on('end', () => {
     log([command.trim()])
     if (mode === 'crash') process.exit(1)
-    frame({event: 'finished', interrupted: false})
+    const training = mode === 'training' && command.trim() === 'stop'
+    frame({event: 'finished', interrupted: false, ...(training && {training_id: 'take-ABCDEFGHIJKLMNOP'})})
   })
 } else if (cmd === 'ensure-model') {
   frame('/models/base.bin')
 } else if (cmd === 'transcribe') {
+  if (mode === 'training') {
+    log(['training', process.env.RAGE_TRAINING_TAKE_ID, process.env.RAGE_TRAINING_DIR])
+    if (process.env.RAGE_TRAINING_TAKE_ID) {
+      frame({text: 'мой текст', training_error: 'training disk full'})
+      process.exit(0)
+    }
+  }
   if (mode === 'host' || mode === 'crash') {
     if (process.env.RAGE_RECOVER_WAV !== (mode === 'crash' ? '1' : '0')) process.exit(2)
     log(['native options', process.env.RAGE_FFMPEG, process.env.RAGE_WHISPER, process.env.OPENCODE_VOICE_TRANSCRIBE_CPP, process.env.RAGE_CLEANUP_FILTER])
@@ -56,6 +78,8 @@ if (cmd === 'devices') {
   } else if (mode === 'failed') {
     console.error('whisper failed'); process.exit(1)
   } else frame('мой текст')
+} else if (cmd === 'training-asr-timeout') {
+  log(['timeout ID', process.env.RAGE_TRAINING_TAKE_ID])
 }
 `, { mode: 0o700 })
   Object.assign(process.env, { RAGE_CORE: binary, RAGE_FFMPEG: binary, RAGE_LOG: log, TMPDIR: root })
@@ -109,6 +133,49 @@ test('watch consumes initial and changed frames and closes stdin on abort', asyn
   assert.deepEqual(await events(), [['watch'], ['watch closed']])
 })
 
+test('listen passes only the explicit source, drains WAV EOF and drops frames after abort', async () => {
+  const frames: ListenEvent[] = []
+  const ac = new AbortController()
+  await listen({ wav: '/source with spaces.wav' }, 'ru', '/models/small.bin', e => frames.push(e), ac.signal)
+  assert.deepEqual(frames, [
+    { event: 'waiting' }, ...[0, 1, 2, 3].map(level => ({ event: 'level', level })),
+    { event: 'heard', id: 1 }, { event: 'text', id: 1, text: 'мой текст' },
+  ])
+  await listen({ input: ':pinned iPhone' }, 'auto', 'whisper-base', e => { frames.push(e); ac.abort() }, ac.signal)
+  assert.equal(frames.length, 8)
+  assert.deepEqual(await events(), [
+    ['listen', '--wav', '/source with spaces.wav', 'ru', '/models/small.bin'],
+    ['listen', '--input', ':pinned iPhone', 'auto', 'whisper-base'], ['cancel'],
+  ])
+  const { signal } = new AbortController()
+  process.env.RAGE_FIXTURE = 'lost'
+  await assert.rejects(listen({ input: ':pinned' }, 'auto', 'm', () => {}, signal), /disconnected/)
+  await assert.rejects(listen({ wav: '' }, 'auto', 'm', () => {}, signal), /--wav/)
+  process.env.RAGE_FIXTURE = 'malformed'
+  await assert.rejects(listen({ wav: 'bad' }, 'auto', 'm', () => {}, signal), /Некорректный/)
+  assert.equal((await events()).filter(([cmd]) => cmd === 'listen').length, 4)
+  assert.deepEqual((await readdir(root)).filter(x => x.startsWith('rage-listen-')), [])
+})
+
+test('listen rejects meter levels outside the four integer buckets', async () => {
+  process.env.RAGE_FIXTURE = 'bad level'
+  const { signal } = new AbortController()
+  for (const wav of ['-1', '1.5', '4']) {
+    await assert.rejects(listen({ wav }, 'auto', 'm', () => assert.fail('invalid level'), signal), /Некорректный/)
+  }
+})
+
+test('listen reports training warnings without dropping normal events', async () => {
+  process.env.RAGE_FIXTURE = 'training'
+  const { signal } = new AbortController()
+  const frames: ListenEvent[] = []
+  const warnings: string[] = []
+  await listen({ wav: 'fixture.wav' }, 'auto', 'm', frame => frames.push(frame), signal,
+    process.env, message => warnings.push(message))
+  assert.equal(frames.at(-1)?.event, 'text')
+  assert.deepEqual(warnings, ['training disk full'])
+})
+
 test('a normal take waits for stop and hands off a disposable WAV', async () => {
   const take = await startTake('USB Mic', () => assert.fail('unexpected input loss'))
   const { path, interrupted, dispose } = await take.finish()
@@ -117,6 +184,27 @@ test('a normal take waits for stop and hands off a disposable WAV', async () => 
   assert.equal(await readFile(path, 'utf8'), 'fixture audio')
   await dispose()
   await assert.rejects(readdir(dirname(path)), { code: 'ENOENT' })
+})
+
+test('only stopped owned takes can hand off their training ID; errors do not discard recognized text', async () => {
+  process.env.RAGE_FIXTURE = 'training'
+  const directory = join(root, 'training')
+  const env = { ...process.env, RAGE_TRAINING_DIR: directory, RAGE_TRAINING_TAKE_ID: 'untrusted' }
+  const take = await startTake(null, () => assert.fail('unexpected input loss'), undefined, env)
+  const recording = await take.finish()
+  assert.deepEqual(recording.training, { id: 'take-ABCDEFGHIJKLMNOP', directory })
+  const { signal } = new AbortController()
+  const warnings: string[] = []
+  assert.equal(await transcribe(recording.path, settings, signal, env, {
+    ...recording.training!, onError: message => warnings.push(message),
+  }), 'мой текст')
+  assert.deepEqual(warnings, ['training disk full'])
+  assert.equal(await transcribe('/external.wav', settings, signal, env), 'мой текст')
+  assert.deepEqual((await events()).filter(([cmd]) => cmd === 'training'), [
+    ['training', 'take-ABCDEFGHIJKLMNOP', directory],
+    ['training', null, directory],
+  ])
+  await recording.dispose()
 })
 
 test('unplug and pre-ready exit publish a partial draft; a crash racing Stop also marks it interrupted', async () => {
@@ -166,6 +254,21 @@ test('aborting transcription stops the whisper descendant and removes its partia
   } finally { controller.abort(); await task.catch(() => {}) }
 })
 
+test('owned manual recording marks its ASR timeout after killing the old worker', async () => {
+  process.env.RAGE_FIXTURE = 'hang'
+  const controller = new AbortController()
+  const id = 'take-ABCDEFGHIJKLMNOP'
+  const task = transcribe('/a', settings, controller.signal, process.env, {
+    id, directory: root, onError: message => assert.fail(message),
+  })
+  try {
+    await waitUntil(async () => (await events()).find(([cmd]) => cmd === 'whisper'))
+    controller.abort(new DOMException('test timeout', 'TimeoutError'))
+    await assert.rejects(task, { name: 'TimeoutError' })
+    assert.deepEqual((await events()).at(-1), ['timeout ID', id])
+  } finally { controller.abort(); await task.catch(() => {}) }
+})
+
 test('full V2 host routes native takes through the existing submit, model, settings and unplug paths', {
   skip: process.platform !== 'darwin',
 }, async () => {
@@ -206,7 +309,7 @@ test('full V2 host routes native takes through the existing submit, model, setti
   } as unknown as Plugin.Context)
   try {
     const commands = layer().commands!
-    assert.deepEqual(commands.map(c => c.slash?.name), ['voice', 'voice-submit', 'voice-stop', 'voice-settings', 'orbs'])
+    assert.deepEqual(commands.map(c => c.slash?.name), ['voice', 'voice-submit', 'voice-stop', 'voice-settings', 'orbs', 'rage-listen'])
     const cmd = commands.find(c => c.id === 'voice.record')!
     assert.equal(cmd.bind, 'alt+r')
     process.env.RAGE_FIXTURE = 'host'
@@ -247,6 +350,14 @@ test('full V2 host routes native takes through the existing submit, model, setti
     await decoding
     assert.equal(sent.length, 2)
     assert.deepEqual(await readdir(join(store.downloadDir, 'recordings')), [])
+
+    process.env.RAGE_LISTEN_WAV = join(root, 'explicit QA.wav')
+    process.env.RAGE_FIXTURE = ''
+    await commands.find(c => c.id === 'voice.listen')!.run()
+    const listenCall = await waitUntil(async () => (await events()).find(([cmd]) => cmd === 'listen'))
+    assert.deepEqual(listenCall, ['listen', '--wav', process.env.RAGE_LISTEN_WAV, 'auto', breeze])
+    await commands.find(c => c.id === 'voice.stop')!.run()
+    assert.equal(sent.length, 2)
 
     // Exercise the real native error classification when enumeration succeeds but opening fails.
     const ffmpeg = join(root, 'missing pinned input')

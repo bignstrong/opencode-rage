@@ -97,8 +97,8 @@ After publication, run on the target OS/architecture. No model or microphone nee
   unset OPENCODE_VOICE_ENGINE_REGISTRY OPENCODE_VOICE_ENGINE_REGISTRY_SHA256
   export OPENCODE_VOICE_DIR="$(mktemp -d)"
   for engine in whisper.cpp transcribe-cpp; do
-    ./bin/rage engine install "$engine"
-    ./bin/rage engine status "$engine" --json
+    ./bin/setup-opencode engine install "$engine"
+    ./bin/setup-opencode engine status "$engine" --json
   done
 )
 ```

@@ -21,6 +21,7 @@ interface Spinner extends Renderable {
 }
 
 interface TextGlyph {
+  fg: RGBA | undefined;
   children: string[];
   replace(value: string, index: number): void;
 }
@@ -122,11 +123,16 @@ function replaceIndicator(
   const glyph = staticGlyph(leaf);
   if (glyph?.children[0] !== nativeStill) return;
   // Keep the original Solid text node; its parent owns style and disposal.
+  const originalColor = glyph.fg;
+  const color = foreground();
+  glyph.fg = color;
   glyph.replace(still[0], 0);
   return {
     owns: () => glyph.children[0] === still[0],
     restore: () => {
-      if (!leaf.isDestroyed && glyph.children[0] === still[0]) glyph.replace(nativeStill, 0);
+      if (leaf.isDestroyed) return;
+      if (glyph.fg === color) glyph.fg = originalColor;
+      if (glyph.children[0] === still[0]) glyph.replace(nativeStill, 0);
     },
   };
 }

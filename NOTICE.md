@@ -1,6 +1,8 @@
 # Third-party notices
 
-Rage is based on [safwan-o/opencode-voice](https://github.com/safwan-o/opencode-voice), derived from [ihxnnxs/opencode-voice](https://github.com/ihxnnxs/opencode-voice). The original MIT [license](LICENSE) is retained. Runtime and model sources:
+The macOS recording and transcription workflow was rewritten in Rust for Rage. Rage retains legacy JavaScript code from [safwan-o/opencode-voice](https://github.com/safwan-o/opencode-voice), whose upstream is [ihxnnxs/opencode-voice](https://github.com/ihxnnxs/opencode-voice). The original MIT [license](LICENSE) is retained.
+
+Runtime and model sources:
 
 - [Handy](https://github.com/cjpais/Handy) inspired the local-first model experience and supplies the curated `transcribe.cpp` model catalog this plugin pins and verifies.
 - Local Whisper transcription uses [`whisper.cpp`](https://github.com/ggml-org/whisper.cpp).

@@ -209,6 +209,8 @@ def smoke(run, args):
     recorder.chmod(0o700)
     env.update(RAGE_FFMPEG=str(recorder), OPENCODE_VOICE_FFMPEG=str(recorder),
                OPENCODE_VOICE_TRANSCRIBE_CPP=str(engine), OPENCODE_VOICE_DIR=str(voice))
+    if getattr(args, "training", False):
+        env["RAGE_TRAINING_DIR"] = str(run / "training")
 
     with provider() as (port, posts):
         cfg = home / "config/opencode"
@@ -233,6 +235,14 @@ def smoke(run, args):
     events = [json.loads(s)["event"] for s in (run / "capture.jsonl").read_text().splitlines()]
     check([e for e in events if e != "inventory"] == ["start", "stop"], f"capture events: {events}")
     check(not list((voice / "recordings").iterdir()), "temporary take was not removed")
+    if "RAGE_TRAINING_DIR" in env:
+        samples = list((run / "training").glob("*/meta.json"))
+        check(len(samples) == 1, "one stopped manual dictation must create one dataset example")
+        record = json.loads(samples[0].read_text())
+        check(record["source"] == "manual" and record["asr_text"] == transcript
+              and record["reference_text"] is None, "manual audio/ASR result not paired correctly")
+        audio = samples[0].with_name("audio.wav")
+        check(audio.stat().st_size > 44 and audio.stat().st_mode & 0o077 == 0, "missing/private WAV")
     db = home / "data/opencode/opencode.db"
     with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as con:
         messages = con.execute("SELECT COUNT(*) FROM session_message").fetchone()[0]
@@ -248,6 +258,7 @@ if __name__ == "__main__":
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--opencode", default=shutil.which("opencode"))
     parser.add_argument("--keep", action="store_true", help="retain successful evidence as well as failures")
+    parser.add_argument("--training", action="store_true", help="verify opt-in local collection using only the fixture")
     args = parser.parse_args()
     check(sys.platform == "darwin" and args.opencode, "requires installed macOS OpenCode")
     os.umask(0o077)

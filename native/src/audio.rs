@@ -10,7 +10,10 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tempfile::{NamedTempFile, TempPath, tempfile};
+use tempfile::{NamedTempFile, TempPath};
+
+#[path = "listen_live.rs"]
+pub(crate) mod listen_live;
 
 const TICK: Duration = Duration::from_millis(25);
 const SCAN_TIMEOUT: Duration = Duration::from_secs(4);
@@ -43,31 +46,50 @@ impl Drop for Process {
 
 struct Scan {
     proc: Process,
-    text: File,
+    text: mpsc::Receiver<Result<String, String>>,
     start: Instant,
 }
 
 impl Scan {
     fn start(binary: &OsStr) -> Result<Self, String> {
-        let text = tempfile().map_err(err)?;
-        let proc = Command::new(binary)
-            .args([
-                "-hide_banner",
-                "-nostdin",
-                "-f",
-                "avfoundation",
-                "-list_devices",
-                "true",
-                "-i",
-                "",
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(text.try_clone().map_err(err)?)
-            .spawn()
-            .map_err(err)?;
+        let mut proc = Process(
+            Command::new(binary)
+                .args([
+                    "-hide_banner",
+                    "-nostdin",
+                    "-f",
+                    "avfoundation",
+                    "-list_devices",
+                    "true",
+                    "-i",
+                    "",
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(err)?,
+        );
+        let stderr = proc.0.stderr.take().ok_or("Missing device list pipe")?;
+        let (tx, text) = mpsc::channel();
+        thread::spawn(move || {
+            let mut list = String::new();
+            let limit = 512 * 1024;
+            let result = stderr
+                .take(limit + 1)
+                .read_to_string(&mut list)
+                .map_err(err)
+                .and_then(|_| {
+                    if list.len() as u64 > limit {
+                        Err("FFmpeg device list exceeds size limit".into())
+                    } else {
+                        Ok(list)
+                    }
+                });
+            let _ = tx.send(result);
+        });
         Ok(Self {
-            proc: Process(proc),
+            proc,
             text,
             start: Instant::now(),
         })
@@ -81,14 +103,15 @@ impl Scan {
                 Some(code) => return Err(format!("FFmpeg device scan failed (exit {code})")),
                 None => return Err("FFmpeg device scan was interrupted".into()),
             }
-            if self.text.metadata().map_err(err)?.len() > 512 * 1024 {
-                return Err("FFmpeg device list exceeds size limit".into());
+            match self.text.try_recv() {
+                Ok(text) => return Ok(Some(parse_list(&text?)?)),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err("Device list reader failed".into());
+                }
+                Err(mpsc::TryRecvError::Empty) => (),
             }
-            self.text.rewind().map_err(err)?;
-            let mut text = String::new();
-            self.text.read_to_string(&mut text).map_err(err)?;
-            Ok(Some(parse_list(&text)?))
-        } else if self.start.elapsed() >= SCAN_TIMEOUT {
+        }
+        if self.start.elapsed() >= SCAN_TIMEOUT {
             Err("FFmpeg device scan timed out".into())
         } else {
             Ok(None)
@@ -96,7 +119,10 @@ impl Scan {
     }
 }
 
-fn scan(binary: &OsStr, check: impl Fn() -> Result<(), String>) -> Result<Vec<Device>, String> {
+fn scan(
+    binary: &OsStr,
+    mut check: impl FnMut() -> Result<(), String>,
+) -> Result<Vec<Device>, String> {
     let mut scan = Scan::start(binary)?;
     loop {
         check()?;
@@ -218,7 +244,7 @@ impl Log {
     }
 }
 
-fn wav_header(bytes: u64) -> Result<[u8; 44], String> {
+pub(crate) fn wav_header(bytes: u64) -> Result<[u8; 44], String> {
     let size = u32::try_from(bytes)
         .ok()
         .and_then(|n| n.checked_add(36))
@@ -274,7 +300,10 @@ fn read_control(reader: impl BufRead) -> Control {
     Control::Cancel
 }
 
-pub fn record(input: Option<&str>, output: &Path) -> Result<bool, String> {
+pub fn record(
+    input: Option<&str>,
+    output: &Path,
+) -> Result<(bool, Option<Result<String, String>>), String> {
     let binary = ffmpeg().unwrap_or_else(|_| OsString::from("ffmpeg"));
     let (tx, rx) = mpsc::channel();
     // One CLI invocation owns stdin; EOF means the adapter disappeared.
@@ -282,12 +311,27 @@ pub fn record(input: Option<&str>, output: &Path) -> Result<bool, String> {
         let _ = tx.send(read_control(io::stdin().lock()));
     });
     let sox = env::var_os("RAGE_SOX").unwrap_or_else(|| OsString::from("sox"));
-    record_with_fallback(&binary, &sox, input, output, &rx, || {
+    let interrupted = record_with_fallback(&binary, &sox, input, output, &rx, || {
         let mut out = io::stdout().lock();
         out.write_all(b"{\"event\":\"ready\"}\n")
             .and_then(|()| out.flush())
             .map_err(err)
-    })
+    })?;
+    Ok((
+        interrupted,
+        collect_training(output, interrupted, crate::training::directory().as_deref()),
+    ))
+}
+
+fn collect_training(
+    output: &Path,
+    interrupted: bool,
+    root: Option<&Path>,
+) -> Option<Result<String, String>> {
+    if interrupted {
+        return None;
+    }
+    Some(crate::training::manual(root?, output).map_err(crate::training::failure))
 }
 
 // Track the opened mic, not the system default. Once known, a UID outranks the name.
@@ -776,6 +820,32 @@ mod tests {
         verify_wav(&path);
         let args = fs::read_to_string(dir.path().join("args")).unwrap();
         assert!(args.contains("-audio_device_id\nuid:a:b\n-i\n:1\n"));
+    }
+
+    #[test]
+    fn manual_training_is_opt_in_and_skips_interrupted_pcm() {
+        let (dir, bin, path) = fake(&format!("{OPEN}{SAMPLE}read -r cmd"));
+        let (tx, rx) = mpsc::channel();
+        let interrupted = capture(bin.as_os_str(), Some(PIN), &path, &rx, || {
+            tx.send(Control::Stop).unwrap();
+            Ok(())
+        })
+        .unwrap();
+        assert!(!interrupted);
+        let root = dir.path().join("training");
+        assert_eq!(collect_training(&path, interrupted, None), None);
+        assert_eq!(collect_training(&path, true, Some(&root)), None);
+        assert!(!root.exists());
+        let id = collect_training(&path, interrupted, Some(&root))
+            .unwrap()
+            .unwrap();
+        let take = root.join(id);
+        verify_wav(&take.join("audio.wav"));
+        let error = collect_training(&path, interrupted, Some(&path))
+            .unwrap()
+            .unwrap_err();
+        assert!(error.starts_with("RAGE_TRAINING_DIR:"));
+        verify_wav(&path);
     }
 
     #[test]

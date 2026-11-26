@@ -94,7 +94,7 @@ test("changes only native frames; preserves armed hint, other plugins and latest
   assert.equal(h.renderer.listenerCount("frame"), 0);
 });
 
-test("center glyph uses the live theme text in dark and light themes, then restores the host sweep", () => {
+test("center glyph uses the supplied color, then restores the host sweep", () => {
   const h = host();
   const original = h.leaf._color;
   let text = "#eeeeee";
@@ -126,17 +126,20 @@ test("reduced motion uses one frame; cleanup never overwrites another plugin's n
 
 test("static native fallback stays static and retains the original Solid text node", () => {
   const text = {
+    fg: "#ffffff",
     children: ["[⋯]"],
     replace(value, index) {
       this.children[index] = value;
     },
   };
   const h = host({ id: "text-463", getTextChildren: () => [text] });
-  const stop = h.install();
+  const stop = h.install({ foreground: () => "#ec5b2b" });
+  assert.equal(text.fg, "#ec5b2b");
   assert.deepEqual(text.children, [stillDots]);
   h.renderer.emit("frame");
   stop();
   assert.deepEqual(text.children, ["[⋯]"]);
+  assert.equal(text.fg, "#ffffff");
 });
 
 test("unknown versions, shapes, ambiguous rows, and non-native spinners keep their visuals", () => {

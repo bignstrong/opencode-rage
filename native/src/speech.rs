@@ -3,11 +3,12 @@
 use std::env;
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::io::{self, Read, Seek};
+use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 
 const BASE: &str = "ggml-base.bin";
+const EMPTY_TRANSCRIPT: &str = "Transcription returned empty text";
 const SIZE: u64 = 147951465;
 const SHA256: &str = "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe";
 const URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin";
@@ -265,7 +266,42 @@ fn sidecar(model: &Path) -> bool {
     }
 }
 
+struct Running(Child);
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+type Pump<'a> = Option<&'a mut dyn FnMut() -> Result<(), String>>;
+
+fn wait(child: Child, pump: Pump<'_>) -> Result<ExitStatus, String> {
+    let mut child = Running(child);
+    if let Some(pump) = pump {
+        loop {
+            pump()?;
+            if let Some(status) = child.0.try_wait().map_err(io_error)? {
+                return Ok(status);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    child.0.wait().map_err(io_error)
+}
+
 fn recognize(cli: &Path, model: &Path, wav: &Path, language: &str) -> Result<String, String> {
+    recognize_with(cli, model, wav, language, Stdio::null(), None)
+}
+
+fn recognize_with(
+    cli: &Path,
+    model: &Path,
+    wav: &Path,
+    language: &str,
+    input: Stdio,
+    pump: Pump<'_>,
+) -> Result<String, String> {
     let mut command = Command::new(cli);
     let gguf = sidecar(model);
     if gguf {
@@ -292,12 +328,13 @@ fn recognize(cli: &Path, model: &Path, wav: &Path, language: &str) -> Result<Str
     // the direct child never blocks on pipe handles inherited by grandchildren.
     let stdout = tempfile::tempfile().map_err(io_error)?;
     let stderr = tempfile::tempfile().map_err(io_error)?;
-    let status = command
-        .stdin(Stdio::null())
+    let child = command
+        .stdin(input)
         .stdout(stdout.try_clone().map_err(io_error)?)
         .stderr(stderr.try_clone().map_err(io_error)?)
-        .status()
+        .spawn()
         .map_err(|e| format!("Cannot start {}: {e}", cli.display()))?;
+    let status = wait(child, pump)?;
     let log = captured(stderr, 4 * 1024 * 1024)?;
     let error = log
         .lines()
@@ -315,7 +352,7 @@ fn recognize(cli: &Path, model: &Path, wav: &Path, language: &str) -> Result<Str
     let text = captured(stdout, 4 * 1024 * 1024)?;
     let text = clean_text(&text);
     if text.is_empty() {
-        return Err("Transcription returned empty text".into());
+        return Err(EMPTY_TRANSCRIPT.into());
     }
     Ok(text)
 }
@@ -357,6 +394,115 @@ fn filtered_wav(wav: &Path, ffmpeg: &Path, filter: &OsStr) -> Option<tempfile::N
     (status.success() && out.as_file().metadata().ok()?.len() > 44).then_some(out)
 }
 
+fn wake_has_acoustic_support(wav: &mut File) -> io::Result<bool> {
+    // Inspect the actual decoder input, including cleanup. This WAV is always
+    // our fixed header followed by mono 16 kHz PCM, not an external WAV.
+    const HEADER_BYTES: u64 = 44;
+    let mut frame = [0u8; 320];
+    let frames = wav.metadata()?.len().saturating_sub(HEADER_BYTES) / frame.len() as u64;
+    wav.seek(io::SeekFrom::Start(HEADER_BYTES))?;
+    let mut reader = io::BufReader::new(wav);
+    let mut supported = 0;
+    for _ in 0..frames {
+        reader.read_exact(&mut frame)?;
+        let pcm = std::array::from_fn::<_, 160, _>(|i| {
+            i32::from(i16::from_le_bytes([frame[2 * i], frame[2 * i + 1]]))
+        });
+        let mean = pcm.iter().sum::<i32>() / 160;
+        let energy: i64 = pcm.iter().map(|s| i64::from(s - mean).pow(2)).sum();
+        let crossings = pcm
+            .windows(2)
+            .filter(|p| (p[0] < mean) != (p[1] < mean))
+            .count();
+        // At least 100 ms of low-level acoustic evidence, not necessarily
+        // contiguous. Centering excludes DC; white hiss crosses near 50%.
+        if energy >= 160 * 32 * 32 && crossings < 56 {
+            supported += 1;
+            if supported == 10 {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// ASR scratch files, including filter output, are unlinked. Dataset copies are handled by the caller.
+/// /dev/fd/0 exposes the inherited seekable WAV to both supported macOS engines.
+pub(crate) fn transcribe_turn(
+    samples: &[i16],
+    model: &str,
+    language: &str,
+    mut pump: impl FnMut() -> Result<(), String>,
+) -> Result<String, String> {
+    pump()?;
+    let cache = Cache::locate()?;
+    let model = cache
+        .model(selection(Some(model)).as_deref())?
+        .ok_or("No Whisper model installed; install the default model or select a model path")?;
+    let gguf = sidecar(&model);
+    let cli = executable(&cache, gguf);
+    let mut wav = tempfile::tempfile().map_err(io_error)?;
+    wav.write_all(&crate::audio::wav_header(2 * samples.len() as u64)?)
+        .map_err(io_error)?;
+    {
+        let mut out = io::BufWriter::new(&mut wav);
+        for sample in samples {
+            out.write_all(&sample.to_le_bytes()).map_err(io_error)?;
+        }
+        out.flush().map_err(io_error)?;
+    }
+    wav.rewind().map_err(io_error)?;
+    if let Some((ffmpeg, filter)) =
+        setting("RAGE_FFMPEG").zip(env::var_os("RAGE_CLEANUP_FILTER").filter(|v| !v.is_empty()))
+    {
+        let mut cleaned = tempfile::tempfile().map_err(io_error)?;
+        cleaned
+            .write_all(&crate::audio::wav_header(0)?)
+            .map_err(io_error)?;
+        let cmd = Command::new(ffmpeg)
+            .args([
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                "pipe:0",
+                "-af",
+            ])
+            .arg(filter)
+            .args(["-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1"])
+            .stdin(wav.try_clone().map_err(io_error)?)
+            .stdout(cleaned.try_clone().map_err(io_error)?)
+            .stderr(Stdio::null())
+            .spawn();
+        if let Ok(child) = cmd
+            && wait(child, Some(&mut pump))?.success()
+        {
+            let bytes = cleaned.metadata().map_err(io_error)?.len() - 44;
+            if bytes > 0 && bytes.is_multiple_of(2) {
+                cleaned.rewind().map_err(io_error)?;
+                cleaned
+                    .write_all(&crate::audio::wav_header(bytes)?)
+                    .map_err(io_error)?;
+                wav = cleaned;
+            }
+        }
+    }
+    pump()?;
+    if !gguf && !wake_has_acoustic_support(&mut wav).map_err(io_error)? {
+        return Err(EMPTY_TRANSCRIPT.into());
+    }
+    wav.rewind().map_err(io_error)?;
+    recognize_with(
+        &cli,
+        &model,
+        Path::new("/dev/fd/0"),
+        language,
+        wav.into(),
+        Some(&mut pump),
+    )
+}
+
 pub fn transcribe(wav: &Path, model: Option<&str>, language: &str) -> Result<String, String> {
     let wav = wav
         .canonicalize()
@@ -390,6 +536,38 @@ pub fn transcribe(wav: &Path, model: Option<&str>, language: &str) -> Result<Str
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    fn noise(samples: usize) -> Vec<i16> {
+        let mut state = 42u32;
+        (0..samples)
+            .map(|_| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                ((state >> 16) % 10_001) as i16 - 5000
+            })
+            .collect()
+    }
+
+    #[test]
+    fn wake_gate_rejects_silence_dc_and_hiss_but_accepts_short_quiet_signal() {
+        let viable = |samples: &[i16]| {
+            let mut wav = tempfile::tempfile().unwrap();
+            wav.write_all(&crate::audio::wav_header(samples.len() as u64 * 2).unwrap())
+                .unwrap();
+            for s in samples {
+                wav.write_all(&s.to_le_bytes()).unwrap();
+            }
+            wake_has_acoustic_support(&mut wav).unwrap()
+        };
+        assert!(!viable(&[]));
+        assert!(!viable(&[0; 1600]));
+        assert!(!viable(&[5000; 1600]));
+        assert!(!viable(&noise(48_000)));
+        let mut quiet = noise(9600);
+        for (i, s) in quiet[1600..3200].iter_mut().enumerate() {
+            *s = *s / 400 + if i % 80 < 40 { 50 } else { -50 };
+        }
+        assert!(viable(&quiet));
+    }
 
     #[test]
     fn selected_model_never_falls_back() {
@@ -468,5 +646,80 @@ printf ' [music] один\n (noise) два \n'"#, "exact.bin", "ru").unwrap(), "
             text.contains("quick brown fox") && text.contains("lazy dog"),
             "{text}"
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires installed Milena voice and Whisper Turbo Q5_0 model/engine"]
+    fn wake_whisper_rejects_noise_but_preserves_spoken_russian() {
+        let model = "whisper-turbo-q5_0";
+        let no_text = Err(EMPTY_TRANSCRIPT.into());
+        assert_eq!(
+            transcribe_turn(&vec![0; 48_000], model, "ru", || Ok(())),
+            no_text
+        );
+        assert_eq!(
+            transcribe_turn(&noise(48_000), model, "ru", || Ok(())),
+            no_text
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        for (text, expected, degraded) in [
+            ("Да.", "да", false),
+            (
+                "Проверь состояние сервера.",
+                "проверь состояние сервера",
+                true,
+            ),
+            (
+                "Редактор субтитров Александр Семкин, корректор Анна Егорова.",
+                "редактор субтитров александр семкин, корректор анна егорова",
+                false,
+            ),
+        ] {
+            let path = dir.path().join("synth.wav");
+            assert!(
+                Command::new("/usr/bin/say")
+                    .args([
+                        "-v",
+                        "Milena",
+                        "--file-format=WAVE",
+                        "--data-format=LEI16@16000",
+                        "-o"
+                    ])
+                    .arg(&path)
+                    .arg(text)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            let wav = fs::read(&path).unwrap();
+            let mut chunks = &wav[12..];
+            let mut pcm = loop {
+                let len = u32::from_le_bytes(chunks[4..8].try_into().unwrap()) as usize;
+                if &chunks[..4] == b"data" {
+                    break chunks[8..8 + len]
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|&s| i16::from_le_bytes(s))
+                        .collect::<Vec<_>>();
+                }
+                chunks = &chunks[8 + len + len % 2..];
+            };
+            let manual = transcribe(&path, Some(model), "ru").unwrap().to_lowercase();
+            assert_eq!(manual.trim_end_matches(['.', '!', '?']), expected);
+            fs::remove_file(path).unwrap();
+            if degraded {
+                for (s, n) in pcm.iter_mut().zip(noise(48_000)) {
+                    *s = *s / 8 + n / 70;
+                }
+            }
+            pcm.extend([0; 16_000]);
+            let wake = transcribe_turn(&pcm, model, "ru", || Ok(()))
+                .unwrap()
+                .to_lowercase();
+            assert_eq!(wake.trim_end_matches(['.', '!', '?']), expected);
+        }
     }
 }

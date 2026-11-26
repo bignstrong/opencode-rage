@@ -1,7 +1,7 @@
 import { Plugin } from "@opencode/plugin/tui";
-import type { Renderable, TextareaRenderable } from "@opentui/core";
+import { RGBA, type Renderable, type TextareaRenderable } from "@opentui/core";
 import { jsx } from "@opentui/solid/jsx-runtime";
-import { createComponent, createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createComponent, createEffect, createSignal, onCleanup, Show, untrack } from "solid-js";
 import { VoiceRuntime } from "../lib/engine.js";
 import { rustBinding, useRust } from "../lib/rust-binding.js";
 import { DEFAULT_SETTINGS, getModel, PLUGIN_ID } from "../lib/models.js";
@@ -19,6 +19,8 @@ import {
 } from "./dialogs.ts";
 import { normalizeSettings, migrateRecordingShortcut, optionsOverlay } from "./settings.ts";
 import { createVoiceController, type Destination } from "./voice.ts";
+import { createWakeListener, type WakeMode, type WakePhase } from "./wake.ts";
+import type { InputLevel } from "../rage/core.ts";
 
 export default Plugin.define({
   id: PLUGIN_ID,
@@ -31,7 +33,7 @@ export default Plugin.define({
     const runtime = createRuntime
       ? createRuntime(options)
       : native
-        ? new native.NativeRuntime(options)
+        ? new native.NativeRuntime(options, (message) => notify(message, "warning"))
         : new VoiceRuntime(options);
 
     const [store, updateStore] = ctx.storage.store("settings", {
@@ -91,11 +93,43 @@ export default Plugin.define({
       return value && localizeDownloadStatus(value, getUiLanguage());
     };
     const status = () => getDownloadStatus(getModel(store.model).id);
+    const [wakeStatus, setWakeStatus] = createSignal<{
+      phase?: WakePhase;
+      level?: InputLevel;
+      mode?: WakeMode;
+    }>({});
+    const statusText = () => {
+      const ru = getUiLanguage() === "ru";
+      const { phase, level, mode } = wakeStatus();
+      const prefix = mode === "auto" ? (ru ? "Автоотправка · " : "Auto-send · ") : "";
+      const labels = ru
+        ? {
+            starting: "Включаю прослушивание…",
+            waiting: "Жду «Рейдж»",
+            heard: "Слышу «Рейдж». Принимаю команду",
+            stopping: "Останавливаю прослушивание…",
+            silence: "Тихо",
+            sound: "Есть звук",
+          }
+        : {
+            starting: "Starting listener…",
+            waiting: "Waiting for «Рейдж»",
+            heard: "Wake word heard. Listening for the command",
+            stopping: "Stopping listener…",
+            silence: "Silence",
+            sound: "Sound",
+          };
+      if (phase === "waiting" && level !== undefined) {
+        const input = level === 0 ? labels.silence : labels.sound;
+        return `${prefix}${labels.waiting} · ${input} ${"█".repeat(level)}${"░".repeat(3 - level)}`;
+      }
+      return phase ? prefix + labels[phase] : status()?.hint;
+    };
     const renderStatus = () =>
       createComponent(Show, {
         keyed: true,
         get when() {
-          return Boolean(status());
+          return Boolean(statusText());
         },
         get children() {
           return jsx("text", {
@@ -103,7 +137,7 @@ export default Plugin.define({
               return ctx.theme.text.muted;
             },
             get children() {
-              return status()?.hint;
+              return statusText();
             },
           });
         },
@@ -149,13 +183,19 @@ export default Plugin.define({
       "sessionID" in origin
         ? ([origin.sessionID, undefined, undefined] as const)
         : ([undefined, origin.location.directory, origin.location.workspaceID] as const);
-    const footers = new Set<{ readonly mode: string; readonly sessionID?: string }>();
+    const footers = new Map<
+      { readonly mode: string; readonly sessionID?: string },
+      Renderable | undefined
+    >();
     const activeFooter = () =>
-      [...footers].some((f) => f.mode === "normal" && f.sessionID === currentSessionID());
-    const composerEditor = (editor = ctx.renderer.currentFocusedRenderable) => {
+      [...footers.keys()].some((f) => f.mode === "normal" && f.sessionID === currentSessionID());
+    const composerEditor = (
+      editor = ctx.renderer.currentFocusedRenderable,
+      anchor = ctx.renderer.root.findDescendantById("voice-dock-anchor"),
+    ) => {
       // OpenCode 2.4.1 exposes no composer insertion API. Only accept the focused
       // editor in our own prompt container, never a dialog or another panel.
-      const prompt = ctx.renderer.root.findDescendantById("voice-dock-anchor")?.parent?.parent;
+      const prompt = anchor?.parent?.parent;
       if (
         !prompt ||
         !editor ||
@@ -199,7 +239,123 @@ export default Plugin.define({
         pending.delete(entry);
       }
     };
-    const afterFocus = () => queueMicrotask(flushDraft);
+    const sessionIdle = (id: string) =>
+      ctx.data.session.status(id) === "idle" &&
+      !ctx.data.session.pending?.list(id).some((item) => item.type !== "synthetic");
+    const wake = createWakeListener({
+      sessionID: currentSessionID,
+      idle: sessionIdle,
+      async send(sessionID, text, signal) {
+        try {
+          // Unlike the default "steer", queue never interrupts a turn that won the idle race.
+          await ctx.client.session.prompt({ sessionID, text, delivery: "queue" });
+          return "accepted";
+        } catch (error) {
+          const tag = (error as { _tag?: string } | null)?._tag;
+          const rejected =
+            tag === "InvalidRequestError" ||
+            tag === "UnauthorizedError" ||
+            tag === "SessionNotFoundError" ||
+            tag === "ConflictError";
+          if (!signal.aborted && !disposed && currentSessionID() === sessionID) {
+            const ru = getUiLanguage() === "ru";
+            const detail = (error as { message?: string } | null)?.message ?? String(error);
+            notify(
+              rejected
+                ? detail
+                : `${ru ? "Отправка не подтверждена. Проверьте чат." : "Send not confirmed. Check the chat."} ${detail}`,
+              "error",
+            );
+          }
+          return rejected ? "rejected" : "unknown";
+        }
+      },
+      wait: (sessionID, signal) => ctx.client.session.wait({ sessionID }, { signal }),
+      bindDraft: (id) => {
+        if (disposed || currentSessionID() !== id) return;
+        for (const [footer, anchor] of footers) {
+          if (footer.mode !== "normal" || footer.sessionID !== id || !anchor || anchor.isDestroyed)
+            continue;
+          const editor =
+            composerEditor(ctx.renderer.currentFocusedRenderable, anchor) ??
+            (lastEditor && composerEditor(lastEditor, anchor));
+          if (!editor?.extmarks) continue;
+          // 2.4.1 clears extmarks synchronously on submit, history recall and reset.
+          // A private zero-width, unstyled mark survives ordinary edits and adds no prompt part.
+          const marks = editor.extmarks;
+          const token = {};
+          const typeId = marks.registerType("rage.wake.draft");
+          const key = marks.create({
+            start: 0,
+            end: 0,
+            typeId,
+            data: token,
+          });
+          // The native controller returns a fresh snapshot on each read.
+          const ownsMark = () => {
+            const mark = marks.get(key);
+            return mark?.typeId === typeId && mark.data === token;
+          };
+          if (!ownsMark()) continue;
+          let nonempty = !!editor.plainText;
+          let stale = false;
+          const changed = () => {
+            const now = !editor.isDestroyed && !!editor.plainText;
+            stale ||= (nonempty && !now) || !ownsMark();
+            nonempty = now;
+          };
+          editor.editBuffer.on("content-changed", changed);
+          const inspect = () => {
+            if (
+              disposed ||
+              currentSessionID() !== id ||
+              footers.get(footer) !== anchor ||
+              footer.sessionID !== id ||
+              editor.isDestroyed ||
+              anchor.isDestroyed ||
+              stale ||
+              !ownsMark()
+            )
+              return "stale";
+            const focused = composerEditor(ctx.renderer.currentFocusedRenderable, anchor);
+            if (!focused || footer.mode !== "normal") return "wait";
+            if (focused !== editor) return "stale";
+            return editor.plainText ? "nonempty" : "empty";
+          };
+          return {
+            nonemptyAtBind: nonempty,
+            inspect,
+            insert(text) {
+              const state = inspect();
+              if (state === "stale" || state === "wait") return state;
+              editor.insertText(text);
+              return "inserted";
+            },
+            append(text) {
+              const prefix = editor.plainText && !/\s$/.test(editor.plainText) ? " " : "";
+              editor.gotoBufferEnd();
+              editor.insertText(prefix + text + " ");
+            },
+            release() {
+              editor.editBuffer.off("content-changed", changed);
+              // Undo can reuse numeric IDs. Never remove another mark.
+              if (!editor.isDestroyed && ownsMark()) marks.delete(key);
+            },
+          };
+        }
+      },
+      phase: (phase, level, mode) => setWakeStatus({ phase, level, mode }),
+      error: (error) => notify(error instanceof Error ? error.message : String(error), "error"),
+    });
+    const stopInbox = ctx.data?.on?.("session.inbox.enqueued", ({ data }) => {
+      if (data.item.type === "user") wake.invalidateDraft(data.sessionID, false);
+    });
+    const afterFocus = () =>
+      queueMicrotask(() => {
+        if (disposed) return;
+        wake.sync();
+        flushDraft();
+      });
     ctx.renderer?.on?.("focused_renderable", afterFocus);
     const submitDraft = () => {
       if (disposed || phase() !== "idle" || !activeFooter()) return;
@@ -300,10 +456,63 @@ export default Plugin.define({
       >[0]["ready"],
     });
 
+    let manualClosing: Promise<void> | undefined;
+    const stopVoice = (silent = false) => {
+      const closingWake = wake.stop();
+      const closing = Promise.all([manualClosing, closingWake, controller.cancel(silent)]).then(
+        () => {},
+      );
+      manualClosing = closing;
+      return closing.finally(() => {
+        if (manualClosing === closing) manualClosing = undefined;
+      });
+    };
+    const record = async (submit: boolean, review = false) => {
+      if (disposed || manualClosing) return;
+      const wakeMode = wake.busy();
+      if (wakeMode)
+        return notify(
+          getUiLanguage() === "ru"
+            ? `Сначала выключите /rage-${wakeMode}.`
+            : `Turn off /rage-${wakeMode} first.`,
+          "warning",
+        );
+      await controller.toggle(submit, review);
+    };
+    const toggleWake = async (mode: WakeMode) => {
+      if (disposed) return;
+      const ru = getUiLanguage() === "ru";
+      const active = wake.busy();
+      if (active === mode) return wake.stop();
+      if (active)
+        return notify(
+          ru ? `Сначала выключите /rage-${active}.` : `Turn off /rage-${active} first.`,
+          "warning",
+        );
+      const id = currentSessionID();
+      if (!id) return notify(ru ? "Сначала откройте чат." : "Open a session first.", "warning");
+      if (phase() !== "idle" || manualClosing || runtime.isRecording() || runtime.isTranscribing())
+        return notify(ru ? "Сначала закончите диктовку." : "Finish dictation first.", "warning");
+      if (!("listen" in runtime) || typeof runtime.listen !== "function")
+        return notify(
+          ru
+            ? "Для прослушивания нужен Rust-модуль Rage для macOS."
+            : "Wake listening requires the Rage macOS Rust runtime.",
+          "warning",
+        );
+      const listen = runtime.listen.bind(runtime);
+      const settings = getSettings();
+      if (activeFooter()) {
+        const editor = composerEditor();
+        if (editor) trackEditor(editor);
+      }
+      wake.start(id, mode, (emit, signal) => listen(settings, emit, signal));
+    };
+
     const stopButton = ctx.ui.slot({
       append: "prompt.footer",
       render: (input) => {
-        footers.add(input);
+        footers.set(input, undefined);
         onCleanup(() => footers.delete(input));
         createEffect(() => {
           // Retry after the host mounts a prompt or switches out of shell mode.
@@ -315,6 +524,7 @@ export default Plugin.define({
         return createComponent(DockedButtons, {
           version: ctx.app?.version,
           renderer: ctx.renderer,
+          onAnchor: (anchor) => footers.set(input, anchor),
           paletteKey: () => ctx.keymap.shortcuts("command.palette.show")[0],
           get normal() {
             return input.mode === "normal";
@@ -334,7 +544,7 @@ export default Plugin.define({
           get orb() {
             return getOrb();
           },
-          toggle: () => void controller.toggle(false, true),
+          toggle: () => void record(false, true),
           get canSend() {
             return input.mode === "normal" && phase() === "idle" && hasDraft();
           },
@@ -348,13 +558,14 @@ export default Plugin.define({
         let anchor: Renderable;
         createEffect(() => {
           if (input.sessionID && ctx.data.session.status(input.sessionID) === "running") {
+            const orbColor = RGBA.fromHex("#ec5b2b");
             onCleanup(
               installAgentActivity({
                 version: ctx.app.version,
                 renderer: ctx.renderer,
                 anchor: () => anchor,
                 animate: getSettings().voiceAnimation,
-                foreground: () => ctx.theme.text.base,
+                foreground: () => orbColor,
                 orb: getOrb(),
               }),
             );
@@ -399,16 +610,47 @@ export default Plugin.define({
     const stopSlot = ctx.ui.slot({
       append: "app",
       render: () => {
+        createEffect(() => {
+          const id = currentSessionID();
+          if (id) sessionIdle(id);
+          untrack(wake.sync);
+        });
         ctx.keymap.layer(() => {
           const settings = getSettings();
           const ru = getUiLanguage() === "ru";
           const group = voiceTitle();
           const run: Record<string, () => void | Promise<void>> = {
-            "voice.record": () => controller.toggle(false),
-            "voice.submit": () => controller.toggle(true),
-            "voice.stop": () => controller.cancel(),
+            "voice.record": () => record(false),
+            "voice.submit": () => record(true),
+            "voice.stop": () => stopVoice(),
             "voice.settings": openSettings,
             "voice.orbs": selectOrb,
+          };
+          const listenCommand = {
+            id: "voice.listen",
+            title: ru
+              ? "Диктовка: включить или выключить ключевое слово (/rage-listen)"
+              : "Voice: toggle wake listening (/rage-listen)",
+            group,
+            description: ru
+              ? "Скажите «Рейдж» и продиктуйте команду в черновик."
+              : "Say «Рейдж» to dictate a command into the draft.",
+            palette: true as const,
+            slash: { name: "rage-listen", aliases: ["voice-listen"] },
+            run: () => toggleWake("listen"),
+          };
+          const autoCommand = {
+            id: "voice.auto",
+            title: ru
+              ? "Диктовка: включить или выключить автоотправку (/rage-auto)"
+              : "Voice: toggle wake auto-send (/rage-auto)",
+            group,
+            description: ru
+              ? "Скажите «Рейдж» и продиктуйте команду. Если есть черновик, текст дополнит его."
+              : "Say «Рейдж» to send a command. If a draft exists, append to it instead.",
+            palette: true as const,
+            slash: { name: "rage-auto" },
+            run: () => toggleWake("auto"),
           };
           if (binding) {
             const rows: {
@@ -422,7 +664,11 @@ export default Plugin.define({
               mode: "global",
               priority: 100,
               bindings: ["voice.record"],
-              commands: rows.map((row) => ({ ...row, run: run[row.id] })),
+              commands: [
+                ...rows.map((row) => ({ ...row, run: run[row.id] })),
+                listenCommand,
+                autoCommand,
+              ],
             };
           }
           return {
@@ -439,7 +685,7 @@ export default Plugin.define({
                 bind: settings.recordingHotkey || false,
                 palette: true as const,
                 slash: { name: "voice", aliases: ["voice-record"] },
-                run: () => controller.toggle(false),
+                run: run["voice.record"],
               },
               {
                 id: "voice.submit",
@@ -450,7 +696,7 @@ export default Plugin.define({
                 group,
                 palette: true as const,
                 slash: { name: "voice-submit" },
-                run: () => controller.toggle(true),
+                run: run["voice.submit"],
               },
               {
                 id: "voice.stop",
@@ -461,7 +707,7 @@ export default Plugin.define({
                 group,
                 palette: true as const,
                 slash: { name: "voice-stop" },
-                run: () => controller.cancel(),
+                run: run["voice.stop"],
               },
               {
                 id: "voice.settings",
@@ -485,6 +731,8 @@ export default Plugin.define({
                 slash: { name: "orbs" },
                 run: selectOrb,
               },
+              listenCommand,
+              autoCommand,
             ],
             bindings: ["voice.record"],
           };
@@ -496,8 +744,10 @@ export default Plugin.define({
     if (shouldShowStartupModelPicker(deps)) void showModelPicker(deps, true);
 
     return () => {
-      stopSlot();
       disposed = true;
+      stopInbox?.();
+      const closing = stopVoice(true);
+      stopSlot();
       ctx.renderer?.off?.("focused_renderable", afterFocus);
       trackEditor(undefined);
       pending.clear();
@@ -506,7 +756,7 @@ export default Plugin.define({
       stopButton();
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
-      return controller.cancel(true);
+      return closing;
     };
   },
 });

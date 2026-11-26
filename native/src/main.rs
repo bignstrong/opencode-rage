@@ -3,12 +3,15 @@ mod catalog;
 mod cli;
 mod external_wav;
 mod install;
+mod listen;
 mod mac_inputs;
 mod orbs;
 mod recorder;
 #[cfg(target_os = "macos")]
 mod settings_migration;
 mod speech;
+mod training;
+mod wake_detector;
 
 use serde_json::{Value, json};
 use std::{
@@ -42,6 +45,7 @@ fn run(args: &[String]) -> Result<(), String> {
             send(json!((0..count).map(|_| animation.frame()).collect::<Vec<_>>()))
         }
         [op] if op == "devices" => send(json!(audio::devices()?)),
+        [op, rest @ ..] if op == "listen" => listen::run(rest),
         [op] if op == "watch" => {
             let mut last = None;
             loop {
@@ -54,11 +58,41 @@ fn run(args: &[String]) -> Result<(), String> {
             }
         }
         [op, output, input @ ..] if op == "record" && input.len() <= 1 => {
-            let interrupted = audio::record(input.first().map(String::as_str), Path::new(output))?;
-            send(json!({"event":"finished","interrupted":interrupted}))
+            let (interrupted, training) = audio::record(input.first().map(String::as_str), Path::new(output))?;
+            let mut event = json!({"event":"finished","interrupted":interrupted});
+            match training {
+                Some(Ok(id)) => event["training_id"] = json!(id),
+                Some(Err(error)) => {
+                    eprintln!("{error}");
+                    event["training_error"] = json!(error);
+                }
+                None => {}
+            }
+            send(event)
         }
         [op, wav, lang, model @ ..] if op == "transcribe" && model.len() <= 1 => {
-            send(json!(speech::transcribe(Path::new(wav), model.first().map(String::as_str), lang)?))
+            let wav = Path::new(wav);
+            let model = model.first().map(String::as_str);
+            let result = speech::transcribe(wav, model, lang);
+            let training_error = env::var("RAGE_TRAINING_TAKE_ID").ok()
+                .zip(training::directory())
+                .and_then(|(id, root)| training::finish_manual(&root, &id, wav, model, lang, &result).err())
+                .map(training::failure);
+            match (result, training_error) {
+                (Ok(text), Some(error)) => {
+                    eprintln!("{error}");
+                    send(json!({"text": text, "training_error": error}))
+                }
+                (Ok(text), None) => send(json!(text)),
+                (Err(error), None) => Err(error),
+                (Err(asr), Some(error)) => Err(format!("{asr}; {error}")),
+            }
+        }
+        [op, wav, lang, model @ ..] if op == "training-asr-timeout" && model.len() <= 1 => {
+            let root = training::directory().ok_or("RAGE_TRAINING_DIR is not set")?;
+            let id = env::var("RAGE_TRAINING_TAKE_ID").map_err(|_| "Missing training take ID")?;
+            training::finish_manual(&root, &id, Path::new(wav), model.first().map(String::as_str), lang,
+                &Err("Transcription timed out".into())).map_err(training::failure)
         }
         [op] if op == "ensure-model" => send(json!(speech::ensure_model()?)),
         _ => Err("usage: rage-core devices | watch | record WAV [INPUT] | transcribe WAV LANGUAGE [MODEL] | ensure-model".into()),

@@ -9,5 +9,5 @@ done
 dir=$(/usr/bin/dirname "$file")
 if [ "$(/usr/bin/uname -s)" != Darwin ]; then exec node "$dir/opencode-voice.js" "$@"; fi
 core="$dir/../native/target/release/rage-core"
-if [ ! -x "$core" ]; then echo 'Missing rage-core; run npm run build:native in the Rage checkout.' >&2; exit 1; fi
+if [ ! -x "$core" ]; then echo 'Missing rage-core; run npm run build:native in the setup-opencode checkout.' >&2; exit 1; fi
 exec "$core" cli "$@"
