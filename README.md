@@ -41,6 +41,8 @@ In `~/.config/opencode/cli.json`, add the absolute path printed by `pwd` to `plu
 
 ## Commands
 
+Click `●` to start recording. Press Enter in the prompt or click `■` to stop and insert the text at the cursor. Once the text appears, press Enter again or click `↑` to send the draft with its attachments.
+
 The thinking orb uses `orng` orange (`#ec5b2b`) independently of the active theme. Select the built-in `orng` theme for matching prompt borders and labels.
 
 | Command | Action |
@@ -63,7 +65,9 @@ If the built-in examples miss your voice, launch OpenCode with `RAGE_WAKE_PROFIL
 
 Run `./bin/setup-opencode doctor` for recorder and engine diagnostics. On macOS the CLI runs the Rust executable directly, without starting Node. On Windows use the portable `opencode-voice` command. OpenCode V2 loads the TypeScript plugin in `src/tui.ts`. Run `npm run check` after the native build.
 
-On macOS, set `RAGE_TRAINING_DIR` to an absolute path accessible only to your account (mode `0700`) to build a private training set. Rage keeps completed dictations, wake commands and calibration takes. It excludes waiting audio and captures cancelled before the command ends. Collection is off by default. From this checkout, run `python3 scripts/training_data.py review "$RAGE_TRAINING_DIR"` to listen and correct transcripts; `manifest` exports only confirmed labels.
+For manual drafts in OpenCode V2, add `"dictationDictionary": {"кубер контрол": "kubectl"}` to the plugin's `options` in `cli.json`. Matching ignores case and requires whole words. The longest phrase wins at the same position. Replacements apply only to newly inserted dictation.
+
+On macOS, set `RAGE_TRAINING_DIR` or the plugin option `trainingDir` to an absolute path accessible only to your account (mode `0700`) to build a private training set. Rage keeps completed dictations, wake commands and calibration takes. It excludes waiting audio and captures cancelled before the command ends. Collection is off by default; set `RAGE_SAVE_TAKES=0` to pause it. Training samples keep the raw ASR result before dictionary replacements. From this checkout, run `python3 scripts/training_data.py review "$RAGE_TRAINING_DIR"` to listen and correct transcripts; `manifest` exports only confirmed labels.
 
 ## How the plugin works
 

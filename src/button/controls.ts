@@ -41,7 +41,7 @@ type VoiceButtonProps = {
   locale: "en" | "ru";
   animate: boolean;
   startedAt?: number;
-  toggle: () => void;
+  toggle: (source: "pointer" | "keyboard") => void;
 };
 
 function activationControl(props: {
@@ -51,7 +51,7 @@ function activationControl(props: {
   foreground?: Accessor<RGBA>;
   content: Accessor<string>;
   width?: Accessor<number>;
-  activate: () => void;
+  activate: VoiceButtonProps["toggle"];
   onFocus: (active: boolean) => void;
 }) {
   const [focused, setFocused] = createSignal(false);
@@ -110,7 +110,7 @@ function activationControl(props: {
       event.stopPropagation();
       if (effect === "consume") return;
       lastClick = now;
-      props.activate();
+      props.activate("pointer");
     },
     onKeyDown(key: KeyEvent) {
       const plainPress =
@@ -123,7 +123,7 @@ function activationControl(props: {
       if (!allowed) return;
       key.preventDefault();
       key.stopPropagation();
-      props.activate();
+      props.activate("keyboard");
     },
     children: jsx("text", {
       get fg() {
@@ -246,7 +246,7 @@ export function ComposerButtons(props: VoiceButtonProps & SendProps) {
         showingActivity: () => props.phase === "transcribing",
         foreground: () =>
           props.phase === "transcribing" ? activityOrange : RGBA.defaultForeground(),
-        activate: () => props.toggle(),
+        activate: (source) => props.toggle(source),
         content() {
           if (native()) return native().voice as string;
           if (props.phase === "idle") return "●";

@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin/tui";
-import { type Renderable, type TextareaRenderable } from "@opentui/core";
+import type { KeyEvent, Renderable, TextareaRenderable } from "@opentui/core";
 import { jsx } from "@opentui/solid/jsx-runtime";
 import { createComponent, createEffect, createSignal, onCleanup, Show, untrack } from "solid-js";
 import { VoiceRuntime } from "../lib/engine.js";
@@ -23,10 +23,32 @@ import { createVoiceController, type Destination } from "./voice.ts";
 import { createWakeListener, type WakeMode, type WakePhase } from "./wake.ts";
 import type { InputLevel } from "../rage/core.ts";
 
+function dictationReplacement(value: unknown) {
+  const entries = Object.entries(
+    value && typeof value === "object" && !Array.isArray(value) ? value : {},
+  )
+    .filter((entry): entry is [string, string] => {
+      const [phrase, replacement] = entry;
+      return !!phrase.trim() && typeof replacement === "string" && !!replacement.trim();
+    })
+    .sort(([a], [b]) => b.length - a.length);
+  if (!entries.length) return (text: string) => text;
+
+  const phrases = entries.map(([phrase]) => `(${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`);
+  const word = "[\\p{L}\\p{M}\\p{N}_]";
+  const pattern = new RegExp(`(?<!${word})(?:${phrases.join("|")})(?!${word})`, "giu");
+  return (text: string) =>
+    text.replace(
+      pattern,
+      (_match, ...captures) => entries[captures.findIndex((part) => part !== undefined)][1],
+    );
+}
+
 export default Plugin.define({
   id: PLUGIN_ID,
   async setup(ctx) {
     const options = (ctx.options ?? {}) as Record<string, unknown>;
+    const applyDictationDictionary = dictationReplacement(options.dictationDictionary);
     const createRuntime = options.createRuntime as
       | ((options: Record<string, unknown>) => VoiceRuntime)
       | undefined;
@@ -181,6 +203,8 @@ export default Plugin.define({
     };
 
     const [phase, setPhase] = createSignal("idle");
+    let clickedRecording: Destination | undefined;
+    let stopWhenStarted = false;
     const [startedAt, setStartedAt] = createSignal(0);
     const currentLocation = () => ctx.location ?? ctx.data.location.default();
     const getDestination = (): Destination => {
@@ -423,6 +447,7 @@ export default Plugin.define({
           notify(error instanceof Error ? error.message : String(error), "error");
         }
       }
+      text = applyDictationDictionary(text);
       const entry = { origin, text };
       if (drafts) drafts.push(text, ...coordinates(origin));
       else pending.add(entry);
@@ -443,7 +468,13 @@ export default Plugin.define({
       getUiLanguage,
       toast: notify,
       downloadStatus,
-      onPhaseChange: setPhase,
+      onPhaseChange: (next) => {
+        if (next === "idle") {
+          clickedRecording = undefined;
+          stopWhenStarted = false;
+        }
+        setPhase(next);
+      },
       onRecordingStarted: (modelId) => {
         setStartedAt(Date.now());
         clearReady(modelId);
@@ -480,6 +511,7 @@ export default Plugin.define({
 
     let manualClosing: Promise<void> | undefined;
     const stopVoice = (silent = false) => {
+      stopWhenStarted = false;
       const closingWake = wake.stop();
       const closing = Promise.all([manualClosing, closingWake, controller.cancel(silent)]).then(
         () => {},
@@ -489,7 +521,7 @@ export default Plugin.define({
         if (manualClosing === closing) manualClosing = undefined;
       });
     };
-    const record = async (submit: boolean, review = false) => {
+    const record = async (submit: boolean, review = false, clicked = false) => {
       if (disposed || manualClosing) return;
       const wakeMode = wake.busy();
       if (wakeMode)
@@ -499,8 +531,41 @@ export default Plugin.define({
             : `Turn off /rage-${wakeMode} first.`,
           "warning",
         );
+      const origin = phase() === "idle" && clicked ? getDestination() : undefined;
+      if (origin) clickedRecording = origin;
       await controller.toggle(submit, review);
+      if (origin && clickedRecording === origin && stopWhenStarted) {
+        stopWhenStarted = false;
+        if (!disposed && !manualClosing && phase() === "recording") {
+          await controller.toggle(false, true);
+        }
+      }
     };
+    const stopOnEnter = (key: KeyEvent) => {
+      if (
+        disposed ||
+        !clickedRecording ||
+        phase() === "idle" ||
+        key.name !== "return" ||
+        key.ctrl ||
+        key.meta ||
+        key.shift ||
+        key.option ||
+        key.super ||
+        key.hyper ||
+        !atOrigin(clickedRecording) ||
+        !activeFooter() ||
+        !composerEditor()
+      )
+        return;
+      key.preventDefault();
+      key.stopPropagation();
+      if (key.repeated) return;
+      if (phase() === "starting") stopWhenStarted = true;
+      if (phase() === "recording") void record(false, true);
+    };
+    // The host handles prompt submission in its own global key listener.
+    ctx.renderer.keyInput.prependListener("keypress", stopOnEnter);
     const toggleWake = async (mode: WakeMode) => {
       if (disposed) return;
       const ru = getUiLanguage() === "ru";
@@ -563,7 +628,7 @@ export default Plugin.define({
           get animate() {
             return getSettings().voiceAnimation;
           },
-          toggle: () => void record(false, true),
+          toggle: (source) => void record(false, true, source === "pointer"),
           get canSend() {
             return input.mode === "normal" && phase() === "idle" && hasDraft();
           },
@@ -763,6 +828,7 @@ export default Plugin.define({
 
     return () => {
       disposed = true;
+      ctx.renderer.keyInput.off("keypress", stopOnEnter);
       stopInbox?.();
       const closing = stopVoice(true);
       stopSlot();

@@ -1,5 +1,11 @@
 # Rage changelog
 
+## 0.2.1
+
+- Press Enter to finish dictation started by clicking Record and insert the result into the draft.
+- Configure exact phrase replacements for fresh manual dictation with `options.dictationDictionary`.
+- Keep queued dictation in order within its original chat or workspace without scanning other drafts.
+
 ## 0.2.0
 
 - OpenCode V2 applies `orng` on first activation, retaining the selected theme mode. Later theme choices persist.

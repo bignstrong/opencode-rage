@@ -376,6 +376,7 @@ async function mountVoice(
   const renderer = Object.assign(new EventEmitter(), {
     root: { findDescendantById: (id) => (id === "voice-dock-anchor" ? anchor : null) },
     currentFocusedRenderable: composer,
+    keyInput: new EventEmitter(),
   });
   composer.parent = { parent: { parent: container } };
   const input = {
@@ -466,6 +467,7 @@ async function mountVoice(
     const done = cleanup?.();
     cleanup = undefined;
     assert.equal(renderer.listenerCount("focused_renderable"), 0);
+    assert.equal(renderer.keyInput.listenerCount("keypress"), 0);
     return done;
   };
   t.after(dispose);
@@ -479,6 +481,7 @@ async function mountVoice(
     command,
     events,
     layer: layerFn,
+    keyInput: renderer.keyInput,
     settings: store.state,
     sends,
     dispatched,
@@ -804,7 +807,7 @@ test("wake opt-in requires an open session and excludes all manual capture paths
   run.emit({ event: "waiting" });
   assert.equal(f.status(), "Waiting for «Рейдж»");
   await f.command("voice.submit").run();
-  f.button.toggle();
+  f.button.toggle("pointer");
   assert.equal(f.runtime.recording, false);
   const closing = toggle.run();
   assert.equal(run.signal.aborted, true);
@@ -1268,7 +1271,7 @@ test("button dictation inserts inline even with autoSubmit, whether clicked to s
   for (const buttonStarts of [true, false]) {
     const f = await mountVoice(t, { settings: { autoSubmit: true } });
     const button = async () => {
-      f.button.toggle();
+      f.button.toggle("pointer");
       await new Promise((resolve) => setImmediate(resolve));
     };
     const command = f.command("voice.record").run;
@@ -1277,4 +1280,103 @@ test("button dictation inserts inline even with autoSubmit, whether clicked to s
     assert.equal(f.composer.plainText.trimEnd(), "hello world");
     assert.deepEqual(f.sends, []);
   }
+});
+
+test("dictionary changes only fresh manual drafts, once and at whole phrase boundaries", async (t) => {
+  const f = await mountVoice(t, {
+    options: {
+      dictationDictionary: {
+        кубер: "Kubernetes",
+        "кубер контрол": "kubectl",
+        kubectl: "не повторять замену",
+        "версия 1.2": "$& stable",
+        лишнее: "",
+      },
+    },
+  });
+  const text = "Кубер контрол, суперкубер, куберов, кубер; версия 1.2, версия 1x2, лишнее.";
+  f.runtime.transcribe = async () => text;
+  f.composer.insertText("кубер контрол: ");
+  await f.command("voice.record").run();
+  await f.command("voice.record").run();
+  assert.equal(
+    f.composer.plainText.trimEnd(),
+    "кубер контрол: kubectl, суперкубер, куберов, Kubernetes; $& stable, версия 1x2, лишнее.",
+  );
+  assert.deepEqual(f.sends, []);
+
+  await f.command("voice.submit").run();
+  await f.command("voice.submit").run();
+  assert.deepEqual(f.sends, [{ sessionID: "s1", text }]);
+});
+
+test("Enter during startup stops pointer-started dictation once the recorder is ready", async (t) => {
+  const { promise, resolve } = Promise.withResolvers();
+  const f = await mountVoice(t, {
+    settings: { autoSubmit: true },
+    options: { ready: { ...readyStub, ensureRecorderReady: () => promise } },
+  });
+  let stops = 0;
+  const stop = f.runtime.stop.bind(f.runtime);
+  f.runtime.stop = () => {
+    stops++;
+    return stop();
+  };
+  f.button.toggle("pointer");
+  const enter = {
+    name: "return",
+    preventDefault: () => {},
+    stopPropagation: () => {},
+  };
+  f.keyInput.emit("keypress", enter);
+  f.keyInput.emit("keypress", { ...enter, repeated: true });
+  assert.equal(stops, 0);
+  assert.equal(f.runtime.recording, false);
+  resolve();
+  await new Promise((done) => setImmediate(done));
+  assert.equal(stops, 1);
+  assert.equal(f.composer.plainText, "hello world");
+  assert.deepEqual(f.sends, []);
+  assert.deepEqual(f.dispatched, []);
+});
+
+test("Enter stops only pointer-started dictation in its focused composer", async (t) => {
+  const f = await mountVoice(t, { settings: { autoSubmit: true } });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const enter = (modifiers = {}) => {
+    const intercepted = [];
+    f.keyInput.emit("keypress", {
+      name: "return",
+      preventDefault: () => intercepted.push("default"),
+      stopPropagation: () => intercepted.push("propagation"),
+      ...modifiers,
+    });
+    return intercepted;
+  };
+  assert.deepEqual(enter(), []);
+
+  f.button.toggle("keyboard");
+  await settle();
+  assert.equal(f.runtime.recording, true);
+  assert.deepEqual(enter(), []);
+  f.button.toggle("keyboard");
+  await settle();
+  const draft = f.composer.plainText;
+
+  f.button.toggle("pointer");
+  await settle();
+  await f.focus({});
+  assert.deepEqual(enter(), []);
+  await f.focus();
+  assert.deepEqual(enter({ shift: true }), []);
+  assert.deepEqual(enter({ repeated: true }), ["default", "propagation"]);
+  assert.equal(f.runtime.recording, true);
+  assert.deepEqual(enter(), ["default", "propagation"]);
+  await settle();
+
+  assert.equal(f.runtime.recording, false);
+  assert.deepEqual(enter(), []);
+  assert.equal(f.composer.plainText, `${draft}hello world`);
+  assert.deepEqual(f.sends, []);
+  assert.deepEqual(f.dispatched, []);
 });

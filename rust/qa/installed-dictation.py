@@ -1,4 +1,4 @@
-"""Installed OpenCode 2.4.1, packed plugin, real offline STT, fake microphone. See README.md."""
+"""Installed OpenCode 2.4.1 or 2.4.2, packed plugin, real offline STT, fake microphone."""
 import argparse
 import contextlib
 import fcntl
@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import shutil
 import signal
@@ -66,7 +67,7 @@ def provider():
             thread.join()
 
 
-def terminal(cmd, project, env, run, transcript):
+def terminal(cmd, project, env, run, transcript, version):
     pid, fd = pty.fork()
     if pid == 0:
         try:
@@ -84,6 +85,10 @@ def terminal(cmd, project, env, run, transcript):
         # 2.4.1 wraps the draft inside its prompt box, even on a wide PTY.
         return " ".join(line.lstrip()[1:].strip() for line in screen.display
                         if line.lstrip().startswith("┃") and line.lstrip()[1:].strip())
+
+    def contains_draft(expected):
+        # The terminal can wrap in the middle of a word or the editable suffix.
+        return "".join(expected.split()) in "".join(composer().split())
 
     def wait(label, predicate, timeout=25):
         deadline = time.monotonic() + timeout
@@ -107,16 +112,16 @@ def terminal(cmd, project, env, run, transcript):
         raise RuntimeError(f"missing button {glyph!r}")
 
     try:
-        wait("home", lambda: "2.4.1" in text() and "●" in text())
+        wait("home", lambda: version in text() and "●" in text())
         os.write(fd, b"Draft: ")
         wait("before", lambda: "Draft:" in composer())
         click("●")
         wait("recording", lambda: "■" in text() and (run / "capture.jsonl").exists())
-        click("■")
-        wait("inserted", lambda: f"Draft: {transcript}" in composer(), 50)
+        os.write(fd, b"\r")
+        wait("inserted", lambda: contains_draft(f"Draft: {transcript}"), 50)
         # Only the prefix and suffix are typed into the PTY. A toast cannot pass this check.
         os.write(fd, b" [editable]")
-        wait("edited", lambda: f"Draft: {transcript} [editable]" in " ".join(composer().split()))
+        wait("edited", lambda: contains_draft(f"Draft: {transcript} [editable]"))
     finally:
         (run / "last.txt").write_text(text())
         with contextlib.suppress(ProcessLookupError):
@@ -157,7 +162,8 @@ def smoke(run, args):
 
     host = str(Path(args.opencode).resolve(strict=True))
     version = execute([host, "--version"])
-    check(version.removeprefix("opencode v") == "2.4.1", f"expected OpenCode 2.4.1, got {version!r}")
+    version_number = version.removeprefix("opencode v")
+    check(version_number in ("2.4.1", "2.4.2"), f"expected OpenCode 2.4.1 or 2.4.2, got {version!r}")
     # Rebuild from one private source snapshot. Never overwrite the coordinator's artifacts.
     stage = run / "build"
     shutil.copytree(REPO, stage, ignore=shutil.ignore_patterns(".git", "node_modules", "target", "rage.node"))
@@ -209,15 +215,20 @@ def smoke(run, args):
     recorder.chmod(0o700)
     env.update(RAGE_FFMPEG=str(recorder), OPENCODE_VOICE_FFMPEG=str(recorder),
                OPENCODE_VOICE_TRANSCRIBE_CPP=str(engine), OPENCODE_VOICE_DIR=str(voice))
-    if getattr(args, "training", False):
-        env["RAGE_TRAINING_DIR"] = str(run / "training")
+    # Replace an exact phrase from the fixture; the corpus must still keep raw ASR.
+    phrase = re.match(r"\S+\s+\S+", transcript)[0]
+    draft_transcript = "kubectl" + transcript[len(phrase):]
+    training = getattr(args, "training", False)
 
     with provider() as (port, posts):
         cfg = home / "config/opencode"
         cfg.mkdir(exist_ok=True)
         options = {"model": "handy-gigaam-v3-e2e-ctc-gguf", "language": "ru", "uiLanguage": "en",
                    "autoSubmit": False, "voiceEnhance": False, "voiceAnimation": False,
-                   "mic": ":uid:1:Fixture", "downloadDir": str(voice)}
+                   "mic": ":uid:1:Fixture", "downloadDir": str(voice),
+                   "dictationDictionary": {phrase: "kubectl"}}
+        if training:
+            options["trainingDir"] = str(run / "training")
         state = home / "state/opencode/latest/tui/plugin.rage.settings.json"
         state.parent.mkdir(parents=True, exist_ok=True)
         dump(state, {**options, "onboardingDone": True})
@@ -230,12 +241,12 @@ def smoke(run, args):
              "providers": {"qa": {"name": "QA", "env": ["QA_KEY"], "models": {"fixture": {}},
                  "package": "@opencode/ai/providers/openai-compatible",
                  "settings": {"baseURL": f"http://127.0.0.1:{port}/v1"}}}})
-        terminal([*jail, host, "--standalone"], project, env, run, transcript)
+        terminal([*jail, host, "--standalone"], project, env, run, draft_transcript, version_number)
     check(not posts, f"unexpected provider POSTs: {posts}")
     events = [json.loads(s)["event"] for s in (run / "capture.jsonl").read_text().splitlines()]
     check([e for e in events if e != "inventory"] == ["start", "stop"], f"capture events: {events}")
     check(not list((voice / "recordings").iterdir()), "temporary take was not removed")
-    if "RAGE_TRAINING_DIR" in env:
+    if training:
         samples = list((run / "training").glob("*/meta.json"))
         check(len(samples) == 1, "one stopped manual dictation must create one dataset example")
         record = json.loads(samples[0].read_text())
@@ -249,6 +260,7 @@ def smoke(run, args):
     check(messages == 0, f"unexpected persisted messages: {messages}")
     return {"host": version, "archiveSHA256": sha(archive), "coreSHA256": sha(pkg / "native/target/release/rage-core"),
             "wavSHA256": sha(wav), "engineSHA256": sha(engine), "transcript": transcript,
+            "draftTranscript": draft_transcript,
             "events": events, "providerPOSTs": len(posts), "sessionMessages": messages}
 
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { createVoiceController } from "../lib/voice-controller.js";
 import tui from "../src/tui.ts";
@@ -47,7 +48,11 @@ test("V2 commands and recording feedback follow the current UI language without 
       ready,
       createRuntime: () => runtime,
     },
-    renderer: { currentFocusedRenderable: null, root: { findDescendantById: () => null } },
+    renderer: {
+      currentFocusedRenderable: null,
+      root: { findDescendantById: () => null },
+      keyInput: new EventEmitter(),
+    },
     location: { directory: "/test/project" },
     storage: { store: () => [settings, async (fn) => fn(settings)] },
     ui: {

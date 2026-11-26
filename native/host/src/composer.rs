@@ -1,7 +1,7 @@
 use napi_derive::napi;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque, hash_map::Entry};
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq, Hash)]
 enum Destination {
     Session(String),
     Home(Option<String>, Option<String>),
@@ -20,7 +20,7 @@ fn origin(
 
 #[napi]
 #[derive(Default)]
-pub struct Drafts(VecDeque<(Destination, String)>);
+pub struct Drafts(HashMap<Destination, VecDeque<String>>);
 
 #[napi]
 impl Drafts {
@@ -38,7 +38,9 @@ impl Drafts {
         workspace: Option<String>,
     ) {
         self.0
-            .push_back((origin(session, directory, workspace), text));
+            .entry(origin(session, directory, workspace))
+            .or_default()
+            .push_back(text);
     }
 
     // Keep the draft until the live editor confirms insertion.
@@ -50,10 +52,7 @@ impl Drafts {
         workspace: Option<String>,
     ) -> Option<String> {
         let dest = origin(session, directory, workspace);
-        self.0
-            .iter()
-            .find(|(d, _)| *d == dest)
-            .map(|(_, text)| text.clone())
+        self.0.get(&dest).and_then(VecDeque::front).cloned()
     }
 
     #[napi]
@@ -64,14 +63,66 @@ impl Drafts {
         workspace: Option<String>,
     ) {
         let dest = origin(session, directory, workspace);
-        if let Some(index) = self.0.iter().position(|(d, _)| *d == dest) {
-            self.0.remove(index);
+        if let Entry::Occupied(mut queue) = self.0.entry(dest) {
+            let pending = queue.get_mut();
+            pending.pop_front();
+            if pending.is_empty() {
+                queue.remove();
+            }
         }
     }
 
     #[napi]
     pub fn clear(&mut self) {
         self.0.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Drafts;
+
+    #[test]
+    fn drafts_stay_in_order_until_their_own_destination_acknowledges_them() {
+        let mut drafts = Drafts::new();
+        drafts.push("first".into(), Some("s1".into()), None, None);
+        drafts.push("other".into(), Some("s2".into()), None, None);
+        drafts.push(
+            "home".into(),
+            None,
+            Some("/project".into()),
+            Some("w1".into()),
+        );
+        drafts.push("second".into(), Some("s1".into()), None, None);
+
+        for _ in 0..2 {
+            assert_eq!(
+                drafts.next(Some("s1".into()), None, None).as_deref(),
+                Some("first")
+            );
+        }
+        drafts.inserted(Some("s1".into()), None, None);
+        assert_eq!(
+            drafts.next(Some("s1".into()), None, None).as_deref(),
+            Some("second")
+        );
+        drafts.inserted(Some("s1".into()), None, None);
+        assert_eq!(drafts.next(Some("s1".into()), None, None), None);
+        assert_eq!(drafts.0.len(), 2);
+        assert_eq!(
+            drafts.next(Some("s2".into()), None, None).as_deref(),
+            Some("other")
+        );
+        assert_eq!(
+            drafts.next(None, Some("/project".into()), Some("w2".into())),
+            None
+        );
+        assert_eq!(
+            drafts
+                .next(None, Some("/project".into()), Some("w1".into()))
+                .as_deref(),
+            Some("home")
+        );
     }
 }
 
