@@ -144,7 +144,7 @@ test("static native fallback stays static and retains the original Solid text no
 
 test("unknown versions, shapes, ambiguous rows, and non-native spinners keep their visuals", () => {
   for (const setup of [
-    (h) => h.install({ version: "2.4.2" }),
+    (h) => h.install({ version: "2.4.3" }),
     (h) => {
       h.label.plainText = "indexing";
       return h.install();

@@ -148,7 +148,11 @@ export function installAgentActivity(options: {
   foreground: () => RGBA;
   orb?: ActivityMode;
 }) {
-  if (options.version !== "2.4.1" || !options.renderer?.on || !options.renderer?.off)
+  if (
+    !["2.4.1", "2.4.2"].includes(options.version ?? "") ||
+    !options.renderer?.on ||
+    !options.renderer?.off
+  )
     return () => {};
   let anchor: Renderable;
   let leaf: Renderable;

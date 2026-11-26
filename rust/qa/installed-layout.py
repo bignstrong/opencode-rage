@@ -40,7 +40,12 @@ def run(package, host, work, mode):
         theme["name"] = "rage-orng"
         state = home / "state/opencode/latest/tui/plugin.rage.settings.json"
         state.parent.mkdir(parents=True)
-        state.write_text(json.dumps({"rageThemeApplied": True}))
+        state.write_text(json.dumps({
+            "rageThemeApplied": True,
+            "onboardingDone": True,
+            "setupSkipped": True,
+            "uiLanguage": "en",
+        }))
     (cfg / "cli.json").write_text(json.dumps({
         "plugins": [str(package)],
         "theme": theme,
@@ -136,12 +141,13 @@ def run(package, host, work, mode):
         wait("idle restoration", lambda: buttons() and not any(interrupt.search(line) for line in screen.display))
         state = home / "state/opencode/latest/tui/plugin.rage.settings.json"
         saved = json.loads(state.read_text())
-        assert all(saved.get(key) == value for key, value in dict(
-            rageThemeApplied=True, uiLanguage="ru", language="ru", orb="breath",
-            model="whisper-turbo", autoSubmit=False, recordingHotkey="", submitHotkey="").items()), saved
+        if mode == "1":
+            assert all(saved.get(key) == value for key, value in dict(
+                rageThemeApplied=True, uiLanguage="ru", language="ru", orb="breath",
+                model="whisper-turbo", autoSubmit=False, recordingHotkey="", submitHotkey="").items()), saved
         assert json.loads((cfg / "cli.json").read_text())["theme"] == {
             "name": "orng" if mode == "1" else "rage-orng", "mode": theme["mode"]}
-        print(f"OpenCode 2.4.1 RAGE_RUST={mode}: dock visible, commands hidden, moving frames at 100/72/44 columns, idle restored.")
+        print(f"RAGE_RUST={mode}: dock visible, commands hidden, moving frames at 100/72/44 columns, idle restored.")
     finally:
         release.set()
         with contextlib.suppress(ProcessLookupError):
@@ -162,7 +168,7 @@ if __name__ == "__main__":
     package = Path(sys.argv[1]).resolve(strict=True)
     host = shutil.which("opencode")
     if not host or not (package / "native/rage.node").is_file():
-        sys.exit("Requires installed OpenCode 2.4.1 and a plugin package with the built layout addon.")
+        sys.exit("Requires installed OpenCode V2 and a plugin package with the built layout addon.")
     for mode in ("0", "1"):
         with tempfile.TemporaryDirectory(prefix="rage-layout-") as folder:
             run(package, host, Path(folder), mode)

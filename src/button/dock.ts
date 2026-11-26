@@ -17,7 +17,7 @@ export function DockedButtons(props: DockProps) {
   // 2.4.1 has a public footer slot but no slot for the commands label itself.
   // Match only that direct text sibling, leaving other hints and keymaps native.
   onMount(() => {
-    if (props.version !== "2.4.1") return;
+    if (!["2.4.1", "2.4.2"].includes(props.version ?? "")) return;
     const binding = rustBinding();
     let hidden: Renderable | undefined;
     const restore = () => {
