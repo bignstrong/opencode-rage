@@ -75,7 +75,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let model = model.first().map(String::as_str);
             let result = speech::transcribe(wav, model, lang);
             let training_error = env::var("RAGE_TRAINING_TAKE_ID").ok()
-                .zip(training::directory())
+                .zip(training::collection_directory())
                 .and_then(|(id, root)| training::finish_manual(&root, &id, wav, model, lang, &result).err())
                 .map(training::failure);
             match (result, training_error) {
@@ -89,7 +89,7 @@ fn run(args: &[String]) -> Result<(), String> {
             }
         }
         [op, wav, lang, model @ ..] if op == "training-asr-timeout" && model.len() <= 1 => {
-            let root = training::directory().ok_or("RAGE_TRAINING_DIR is not set")?;
+            let root = training::collection_directory().ok_or("Training collection is disabled")?;
             let id = env::var("RAGE_TRAINING_TAKE_ID").map_err(|_| "Missing training take ID")?;
             training::finish_manual(&root, &id, Path::new(wav), model.first().map(String::as_str), lang,
                 &Err("Transcription timed out".into())).map_err(training::failure)

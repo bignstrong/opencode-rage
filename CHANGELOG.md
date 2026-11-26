@@ -1,5 +1,9 @@
 # Rage changelog
 
+## 0.2.2
+
+- Restore the last inserted dictation once from the command palette, in its original chat or workspace.
+
 ## 0.2.1
 
 - Press Enter to finish dictation started by clicking Record and insert the result into the draft.

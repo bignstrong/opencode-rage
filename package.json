@@ -1,6 +1,6 @@
 {
   "name": "@bignstrong/setup-opencode",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "OpenCode interface customizations and on-device dictation with a Rust core on macOS",
   "type": "module",
   "license": "MIT",

@@ -378,7 +378,7 @@ fn session(args: &[String], control: &mut Control) -> Result<(), String> {
         _ => return Err("Expected --input DEVICE or --wav PATH".into()),
     };
     let training_dir = if matches!(&source, Source::Live(_)) {
-        training::directory()
+        training::collection_directory()
     } else {
         None
     };

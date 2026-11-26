@@ -205,6 +205,7 @@ export default Plugin.define({
     const [phase, setPhase] = createSignal("idle");
     let clickedRecording: Destination | undefined;
     let stopWhenStarted = false;
+    let stoppedWithEnter: Destination | undefined;
     const [startedAt, setStartedAt] = createSignal(0);
     const currentLocation = () => ctx.location ?? ctx.data.location.default();
     const getDestination = (): Destination => {
@@ -222,7 +223,9 @@ export default Plugin.define({
         here.workspaceID === origin.location.workspaceID
       );
     };
-    const pending = new Set<{ origin: Destination; text: string }>();
+    type DraftFragment = { origin: Destination; text: string };
+    const pending = new Set<DraftFragment>();
+    let lastDictation: DraftFragment | undefined;
     const binding = rustBinding();
     const drafts = binding && new binding.Drafts();
     const coordinates = (origin: Destination) =>
@@ -272,10 +275,12 @@ export default Plugin.define({
       if (drafts) {
         const route = ctx.ui.router.current();
         if (route.type !== "session" && route.type !== "home") return;
-        const args = coordinates(getDestination());
+        const origin = getDestination();
+        const args = coordinates(origin);
         for (let text = drafts.next(...args); text != null; text = drafts.next(...args)) {
           editor.insertText(text);
           drafts.inserted(...args);
+          lastDictation = { origin, text };
         }
         return;
       }
@@ -283,7 +288,16 @@ export default Plugin.define({
         if (!atOrigin(entry.origin)) continue;
         editor.insertText(entry.text);
         pending.delete(entry);
+        lastDictation = entry;
       }
+    };
+    const restoreDictation = () => {
+      const entry = lastDictation;
+      if (disposed || !entry || !atOrigin(entry.origin) || !activeFooter()) return;
+      const editor = composerEditor();
+      if (!editor) return;
+      editor.insertText(entry.text);
+      lastDictation = undefined;
     };
     const sessionIdle = (id: string) =>
       ctx.data.session.status(id) === "idle" &&
@@ -409,7 +423,10 @@ export default Plugin.define({
       if (ctx.renderer.currentFocusedRenderable?.id === "voice-send") {
         composerEditor(lastEditor)?.focus();
       }
-      if (composerEditor()?.plainText.trim()) ctx.keymap.dispatch("prompt.submit");
+      if (composerEditor()?.plainText.trim()) {
+        if (stoppedWithEnter && atOrigin(stoppedWithEnter)) stoppedWithEnter = undefined;
+        ctx.keymap.dispatch("prompt.submit");
+      }
     };
     const deliver = async (
       text: string,
@@ -532,7 +549,10 @@ export default Plugin.define({
           "warning",
         );
       const origin = phase() === "idle" && clicked ? getDestination() : undefined;
-      if (origin) clickedRecording = origin;
+      if (origin) {
+        clickedRecording = origin;
+        stoppedWithEnter = undefined;
+      }
       await controller.toggle(submit, review);
       if (origin && clickedRecording === origin && stopWhenStarted) {
         stopWhenStarted = false;
@@ -542,10 +562,10 @@ export default Plugin.define({
       }
     };
     const stopOnEnter = (key: KeyEvent) => {
+      const origin = clickedRecording ?? stoppedWithEnter;
       if (
         disposed ||
-        !clickedRecording ||
-        phase() === "idle" ||
+        !origin ||
         key.name !== "return" ||
         key.ctrl ||
         key.meta ||
@@ -553,14 +573,28 @@ export default Plugin.define({
         key.option ||
         key.super ||
         key.hyper ||
-        !atOrigin(clickedRecording) ||
+        !atOrigin(origin) ||
         !activeFooter() ||
         !composerEditor()
       )
         return;
+      if (stoppedWithEnter) {
+        // Raw Return cannot distinguish a fresh press from a held key; use Send.
+        if (key.source === "raw" || key.repeated) {
+          key.preventDefault();
+          key.stopPropagation();
+          return;
+        }
+        stoppedWithEnter = undefined;
+      }
+      const clickedOrigin = clickedRecording;
+      if (!clickedOrigin || phase() === "idle" || !atOrigin(clickedOrigin)) return;
       key.preventDefault();
       key.stopPropagation();
       if (key.repeated) return;
+      if (phase() === "starting" || phase() === "recording") {
+        stoppedWithEnter = clickedOrigin;
+      }
       if (phase() === "starting") stopWhenStarted = true;
       if (phase() === "recording") void record(false, true);
     };
@@ -709,6 +743,16 @@ export default Plugin.define({
             "voice.settings": openSettings,
             "voice.orbs": selectOrb,
           };
+          const restoreCommand = {
+            id: "voice.restore",
+            title: ru ? "Вставить последнюю диктовку" : "Restore last dictation",
+            group,
+            description: ru
+              ? "Вставить последний фрагмент у курсора в исходном чате."
+              : "Insert the last dictated fragment at the cursor in its original chat.",
+            palette: true as const,
+            run: restoreDictation,
+          };
           const listenCommand = {
             id: "voice.listen",
             title: ru
@@ -749,6 +793,7 @@ export default Plugin.define({
               bindings: ["voice.record"],
               commands: [
                 ...rows.map((row) => ({ ...row, run: run[row.id] })),
+                restoreCommand,
                 listenCommand,
                 autoCommand,
               ],
@@ -814,6 +859,7 @@ export default Plugin.define({
                 slash: { name: "orbs" },
                 run: selectOrb,
               },
+              restoreCommand,
               listenCommand,
               autoCommand,
             ],
@@ -829,11 +875,13 @@ export default Plugin.define({
     return () => {
       disposed = true;
       ctx.renderer.keyInput.off("keypress", stopOnEnter);
+      stoppedWithEnter = undefined;
       stopInbox?.();
       const closing = stopVoice(true);
       stopSlot();
       ctx.renderer?.off?.("focused_renderable", afterFocus);
       trackEditor(undefined);
+      lastDictation = undefined;
       pending.clear();
       drafts?.clear();
       stopStatus();

@@ -41,7 +41,9 @@ In `~/.config/opencode/cli.json`, add the absolute path printed by `pwd` to `plu
 
 ## Commands
 
-Click `●` to start recording. Press Enter in the prompt or click `■` to stop and insert the text at the cursor. Once the text appears, press Enter again or click `↑` to send the draft with its attachments.
+Click `●` to start recording. Press Enter in the prompt or click `■` to stop and insert the text at the cursor. Click `↑` to send the draft with its attachments. After stopping with Enter, a second Enter can send only if the terminal distinguishes fresh presses from repeats.
+
+If you erase a dictated fragment, open `Ctrl+P` and choose **Restore last dictation**. The last inserted fragment can be restored once, at the cursor in the original chat or workspace, without sending the draft.
 
 The thinking orb uses `orng` orange (`#ec5b2b`) independently of the active theme. Select the built-in `orng` theme for matching prompt borders and labels.
 
@@ -67,7 +69,7 @@ Run `./bin/setup-opencode doctor` for recorder and engine diagnostics. On macOS 
 
 For manual drafts in OpenCode V2, add `"dictationDictionary": {"кубер контрол": "kubectl"}` to the plugin's `options` in `cli.json`. Matching ignores case and requires whole words. The longest phrase wins at the same position. Replacements apply only to newly inserted dictation.
 
-On macOS, set `RAGE_TRAINING_DIR` or the plugin option `trainingDir` to an absolute path accessible only to your account (mode `0700`) to build a private training set. Rage keeps completed dictations, wake commands and calibration takes. It excludes waiting audio and captures cancelled before the command ends. Collection is off by default; set `RAGE_SAVE_TAKES=0` to pause it. Training samples keep the raw ASR result before dictionary replacements. From this checkout, run `python3 scripts/training_data.py review "$RAGE_TRAINING_DIR"` to listen and correct transcripts; `manifest` exports only confirmed labels.
+On macOS, set `RAGE_TRAINING_DIR` or the plugin option `trainingDir` to an absolute path accessible only to your account (mode `0700`) to build a private training set. The standalone calibration wizard needs `RAGE_TRAINING_DIR` in its environment to add takes to that set. Rage keeps completed dictations, wake commands and calibration takes. It excludes waiting audio and captures cancelled before the command ends. Collection is off by default; set `RAGE_SAVE_TAKES=0` to pause it. Training samples keep the raw ASR result before dictionary replacements. From this checkout, run `python3 scripts/training_data.py review "/absolute/path/to/training"` with your configured path to listen and correct transcripts; `manifest` exports only confirmed labels.
 
 ## How the plugin works
 

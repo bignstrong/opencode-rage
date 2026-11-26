@@ -1059,6 +1059,7 @@ test("V2 registers /voice without a default shortcut and inserts at the live cur
       "voice.stop",
       "voice.settings",
       "voice.orbs",
+      "voice.restore",
       "voice.listen",
       "voice.auto",
     ],
@@ -1208,6 +1209,60 @@ for (const [name, origin, other] of [
   });
 }
 
+test("restores only the latest inserted dictation once, at the original chat's cursor", async (t) => {
+  const f = await mountVoice(t);
+  const record = f.command("voice.record");
+  const restore = f.command("voice.restore");
+  await record.run();
+  await record.run();
+  f.runtime.transcribe = async () => "Latest";
+  await record.run();
+  await record.run();
+
+  f.move({ type: "session", sessionID: "s2" }, draft("Other"));
+  await restore.run();
+  assert.equal(f.composer.plainText, "Other");
+
+  f.move({ type: "session", sessionID: "s1" }, draft("Before ", " after"));
+  const dialog = draft("Dialog");
+  await f.focus(dialog);
+  await restore.run();
+  assert.equal(dialog.plainText, "Dialog");
+  await f.focus();
+  await restore.run();
+  await restore.run();
+  assert.equal(f.composer.plainText, "Before Latest after");
+  assert.deepEqual(f.sends, []);
+  assert.deepEqual(f.dispatched, []);
+});
+
+test("a queued dictation becomes restorable only after insertion in its workspace", async (t) => {
+  const f = await mountVoice(t, { route: { type: "home" } });
+  const record = f.command("voice.record");
+  const restore = f.command("voice.restore");
+  await record.run();
+  await f.focus(draft("Dialog"));
+  await record.run();
+
+  f.location.workspaceID = "w2";
+  await f.focus();
+  await restore.run();
+  assert.equal(f.composer.plainText, "");
+
+  f.location.workspaceID = "w1";
+  await restore.run();
+  assert.equal(f.composer.plainText, "");
+  await f.focus();
+  assert.equal(f.composer.plainText, "hello world");
+  f.location.workspaceID = "w2";
+  f.move({ type: "home" }, draft());
+  await restore.run();
+  assert.equal(f.composer.plainText, "");
+  f.location.workspaceID = "w1";
+  await restore.run();
+  assert.equal(f.composer.plainText, "hello world");
+});
+
 test("teardown prevents a late transcript from entering the draft", async (t) => {
   const f = await mountVoice(t, { route: { type: "home" } });
   const decoding = Promise.withResolvers();
@@ -1342,6 +1397,7 @@ test("Enter during startup stops pointer-started dictation once the recorder is 
 
 test("Enter stops only pointer-started dictation in its focused composer", async (t) => {
   const f = await mountVoice(t, { settings: { autoSubmit: true } });
+  const clock = t.mock.method(performance, "now", () => 0);
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const enter = (modifiers = {}) => {
     const intercepted = [];
@@ -1371,12 +1427,25 @@ test("Enter stops only pointer-started dictation in its focused composer", async
   assert.deepEqual(enter({ shift: true }), []);
   assert.deepEqual(enter({ repeated: true }), ["default", "propagation"]);
   assert.equal(f.runtime.recording, true);
-  assert.deepEqual(enter(), ["default", "propagation"]);
+  assert.deepEqual(enter({ source: "raw" }), ["default", "propagation"]);
   await settle();
 
   assert.equal(f.runtime.recording, false);
-  assert.deepEqual(enter(), []);
+  clock.mock.mockImplementation(() => 10_000);
+  assert.deepEqual(enter({ source: "raw" }), ["default", "propagation"]);
+  assert.deepEqual(enter({ source: "kitty", repeated: true }), ["default", "propagation"]);
+  assert.deepEqual(enter({ source: "kitty" }), []);
   assert.equal(f.composer.plainText, `${draft}hello world`);
   assert.deepEqual(f.sends, []);
   assert.deepEqual(f.dispatched, []);
+
+  // The explicit Send action also releases the guard in a raw terminal.
+  f.button.toggle("pointer");
+  await settle();
+  assert.deepEqual(enter({ source: "raw" }), ["default", "propagation"]);
+  await settle();
+  assert.deepEqual(enter({ source: "raw" }), ["default", "propagation"]);
+  f.button.onSend();
+  assert.deepEqual(f.dispatched, ["prompt.submit"]);
+  assert.deepEqual(enter({ source: "raw" }), []);
 });

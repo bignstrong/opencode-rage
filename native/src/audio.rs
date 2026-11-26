@@ -319,7 +319,11 @@ pub fn record(
     })?;
     Ok((
         interrupted,
-        collect_training(output, interrupted, crate::training::directory().as_deref()),
+        collect_training(
+            output,
+            interrupted,
+            crate::training::collection_directory().as_deref(),
+        ),
     ))
 }
 

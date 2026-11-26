@@ -16,6 +16,12 @@ import time
 import wave
 
 
+def training_folder():
+    if os.environ.get("RAGE_SAVE_TAKES") != "0":
+        return os.environ.get("RAGE_TRAINING_DIR")
+    return None
+
+
 def capture(ffmpeg, mic, prompt, seconds, role="enrollment"):
     input(f'\n«{prompt}» — нажми Enter и дождись начала записи. ')
     cmd = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
@@ -43,7 +49,7 @@ def capture(ffmpeg, mic, prompt, seconds, role="enrollment"):
                 proc.kill()
             proc.wait()
             print("Запись остановлена.", flush=True)
-    if folder := os.environ.get("RAGE_TRAINING_DIR"):
+    if folder := training_folder():
         from training_data import save_calibration
         save_calibration(Path(folder), pcm, prompt, role)
     return bytes(pcm)
@@ -157,7 +163,7 @@ def crosscheck(driver, tmp, profile):
 
 def enroll(ffmpeg, mic, base):
     os.umask(0o077)
-    if folder := os.environ.get("RAGE_TRAINING_DIR"):
+    if folder := training_folder():
         from training_data import private_root
         private_root(Path(folder))
     base.mkdir(parents=True, exist_ok=True)
@@ -187,9 +193,10 @@ def run_checks(ffmpeg, mic, base):
             raise ValueError("Выбор не распознан. Образцы сохранены.")
     profile.mkdir(exist_ok=True)
     (profile / "mic.txt").write_text(mic)
-    storage = (f"Завершённые записи и контрольные пробы сохраняются в {os.environ['RAGE_TRAINING_DIR']}."
-               if os.environ.get("RAGE_TRAINING_DIR") else
-               "На Mac сохраняются образцы для обучения. Контрольные записи удаляются; остаётся отчёт с числами.")
+    folder = training_folder()
+    storage = (f"Завершённые записи и контрольные пробы сохраняются в {folder}."
+               if folder else
+               "На Mac сохраняются образцы для профиля пробуждения. Контрольные записи удаляются; остаётся отчёт с числами.")
     print(f"Микрофон: {mic.lstrip(':')}. Уровень показывается после каждой записи.\n{storage}"
           "\nCtrl+C останавливает мастер. Уже принятые образцы можно использовать в следующий раз.")
     source = Path(__file__).resolve().parents[1] / "rust/qa/wake-corpus-driver.rs"

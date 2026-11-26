@@ -29,11 +29,12 @@ python3 rust/qa/installed-dictation.py \
 - Run the host with a fresh HOME, XDG directories, workspace, and standalone server. The macOS sandbox denies microphone access, non-loopback outbound connections, clipboard helpers, and user-home writes. Inference and the TUI also cannot read the source checkout or real user home.
 - Decode the source WAV separately to obtain the expected transcript. In the real TUI, type `Draft: `, click the record button, wait for the stop button, and press Enter. The fixture checks its parent executable is the **packed** `rage-core`, and logs one start and one graceful stop.
 - Configure a dictionary entry for the first two recognized words. Read the composer from the rendered terminal, type ` [editable]`, then verify prefix + corrected transcript + suffix, including soft wraps. The transcript is never typed into the PTY. Verify zero loopback provider POSTs, zero SQLite session messages, and no leftover temporary takes.
+- Erase the draft and run **Restore last dictation** from `Ctrl+P`. Verify the fragment returns to the composer.
 - With `--training`, configure the plugin's `trainingDir`. Verify one private WAV with the original ASR transcript and no confirmed label.
 
 Exit `0` means all checks passed. `--keep` retains `result.json` (hashes, transcript, counts), `capture.jsonl`, the `before`, `recording`, `inserted`, and `edited` screen snapshots, the archive, and isolated host logs. Without it a successful run removes its scratch directory. On failure the script exits nonzero and prints the evidence directory.
 
-To check recovery on the **same installed package**, pass that retained directory to `python3 rust/qa/failure-host.py /path/to/rage-installed-run --keep`. It rejects a prompt before admission and tests removal of the plugin while a decoder result is pending. Both scenarios use a scratch configuration.
+To check recovery on the **same installed package**, put OpenCode 2.4.1 on PATH and pass the retained directory to `python3 rust/qa/failure-host.py /path/to/rage-installed-run --keep`. It rejects a prompt before admission and tests removal of the plugin while a decoder result is pending. Both scenarios use a scratch configuration.
 
 ## Hands-free input
 

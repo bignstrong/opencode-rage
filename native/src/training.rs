@@ -12,7 +12,10 @@ use std::{
 };
 use tempfile::TempDir;
 
-pub(crate) fn directory() -> Option<PathBuf> {
+pub(crate) fn collection_directory() -> Option<PathBuf> {
+    if std::env::var_os("RAGE_SAVE_TAKES").is_some_and(|value| value == "0") {
+        return None;
+    }
     std::env::var_os("RAGE_TRAINING_DIR")
         .filter(|v| !v.is_empty())
         .map(|path| Path::new(&path).components().collect())

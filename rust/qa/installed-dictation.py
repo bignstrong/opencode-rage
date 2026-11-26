@@ -86,16 +86,28 @@ def terminal(cmd, project, env, run, transcript, version):
         return " ".join(line.lstrip()[1:].strip() for line in screen.display
                         if line.lstrip().startswith("┃") and line.lstrip()[1:].strip())
 
-    def contains_draft(expected):
-        # The terminal can wrap in the middle of a word or the editable suffix.
-        return "".join(expected.split()) in "".join(composer().split())
+    def draft_matches(expected):
+        rows = [line.lstrip()[1:].rstrip() for line in screen.display
+                if line.lstrip().startswith("┃")]
+        while rows and not rows[0]:
+            rows.pop(0)
+        if "" not in rows:
+            return False
+        # OpenTUI can soft-wrap at either a space or inside a word.
+        pattern = " ?".join(re.escape(row.lstrip()) for row in rows[:rows.index("")])
+        return re.fullmatch(pattern, expected) is not None
 
-    def wait(label, predicate, timeout=25):
+    def wait(label, predicate, timeout=25, hold_return=False):
         deadline = time.monotonic() + timeout
+        next_press = 0
         while not predicate():
-            if time.monotonic() >= deadline:
+            now = time.monotonic()
+            if now >= deadline:
                 raise RuntimeError(f"timeout: {label}\n{text()}")
-            if select.select([fd], [], [], 0.1)[0]:
+            if hold_return and now >= next_press:
+                os.write(fd, b"\r")
+                next_press = now + 0.07
+            if select.select([fd], [], [], 0.05 if hold_return else 0.1)[0]:
                 data = os.read(fd, 65536)
                 check(data, f"host exited at {label}\n{text()}")
                 if b"\x1b[6n" in data:
@@ -117,11 +129,25 @@ def terminal(cmd, project, env, run, transcript, version):
         wait("before", lambda: "Draft:" in composer())
         click("●")
         wait("recording", lambda: "■" in text() and (run / "capture.jsonl").exists())
+        wait("inserted", lambda: draft_matches(f"Draft: {transcript}"), 50, hold_return=True)
+        release_at = time.monotonic() + 0.35
+        wait("held-enter", lambda: time.monotonic() >= release_at, hold_return=True)
+        check(draft_matches(f"Draft: {transcript}"), "held Enter changed the draft")
+        # A repeat delayed beyond the former guard must still leave the draft unsent.
+        gap_end = time.monotonic() + 0.9
+        wait("repeat-gap", lambda: time.monotonic() >= gap_end)
         os.write(fd, b"\r")
-        wait("inserted", lambda: contains_draft(f"Draft: {transcript}"), 50)
         # Only the prefix and suffix are typed into the PTY. A toast cannot pass this check.
         os.write(fd, b" [editable]")
-        wait("edited", lambda: contains_draft(f"Draft: {transcript} [editable]"))
+        wait("edited", lambda: draft_matches(f"Draft: {transcript} [editable]"))
+        os.write(fd, b"\x7f" * len(f"Draft: {transcript} [editable]"))
+        wait("erased", lambda: "Draft:" not in composer() and transcript not in composer())
+        os.write(fd, b"\x10")
+        wait("palette", lambda: "Search commands" in text())
+        os.write(fd, b"restore last dictation")
+        wait("restore-command", lambda: "restore last dictation" in text() and "Restore last dictation" in text())
+        os.write(fd, b"\r")
+        wait("restored", lambda: draft_matches(transcript))
     finally:
         (run / "last.txt").write_text(text())
         with contextlib.suppress(ProcessLookupError):
@@ -217,7 +243,7 @@ def smoke(run, args):
                OPENCODE_VOICE_TRANSCRIBE_CPP=str(engine), OPENCODE_VOICE_DIR=str(voice))
     # Replace an exact phrase from the fixture; the corpus must still keep raw ASR.
     phrase = re.match(r"\S+\s+\S+", transcript)[0]
-    draft_transcript = "kubectl" + transcript[len(phrase):]
+    draft_transcript = re.sub(rf"(?<!\w){re.escape(phrase)}(?!\w)", "kubectl", transcript, flags=re.I)
     training = getattr(args, "training", False)
 
     with provider() as (port, posts):
