@@ -12,6 +12,7 @@ const ready = {
 
 test("V2 commands and recording feedback follow the current UI language without restarting", async (t) => {
   const settings = {
+    rageThemeApplied: true,
     uiLanguage: "ru",
     language: "ja",
     onboardingDone: true,

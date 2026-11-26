@@ -1,6 +1,6 @@
 {
   "name": "@bignstrong/setup-opencode",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "OpenCode interface customizations and on-device dictation with a Rust core on macOS",
   "type": "module",
   "license": "MIT",
@@ -66,6 +66,7 @@
     "@opentui/core": "^0.5.11",
     "@opentui/solid": "^0.5.11",
     "ffmpeg-static": "^5.2.0",
+    "jsonc-parser": "3.3.1",
     "solid-js": "1.9.12"
   },
   "publishConfig": {

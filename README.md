@@ -4,7 +4,24 @@ An OpenCode V2 interface plugin with recording and send buttons, custom themes, 
 
 [Русская инструкция](docs/README.ru.md) · [Development](CONTRIBUTING.md) · [License](LICENSE)
 
-## Install from this repository (OpenCode V2)
+## Install the previous release (macOS Apple Silicon, OpenCode V2)
+
+Download the `.tgz` and `SHA256SUMS` from [Rage v0.2.0](https://github.com/bignstrong/setup-opencode/releases/tag/v0.2.0). This artifact predates the repository split. For the new layout, install from source below. From the directory with the downloads, run:
+
+```sh
+shasum -a 256 -c SHA256SUMS
+mkdir -p "$HOME/.local/share/rage/0.2.0"
+tar -xzf opencode-rage-v0.2.0-darwin-arm64.tgz -C "$HOME/.local/share/rage/0.2.0"
+cd "$HOME/.local/share/rage/0.2.0/package"
+npm install --omit=dev
+pwd
+```
+
+Add the directory printed by `pwd` to the existing `plugins` array in `~/.config/opencode/cli.json`. Run `/reload` in an open TUI.
+
+On first activation the plugin sets the global OpenCode theme to **orng**. It preserves light/dark mode and leaves later theme choices alone. New profiles use Russian menus and recognition, Whisper Turbo, the system microphone, and the orange **Digital breath** thinking orb. Dictation stays in the draft. No shortcuts or model downloads are required at startup. Change voice preferences with `/voice-settings` and the animation with `/orbs`; saved preferences take precedence.
+
+## Install from source (OpenCode V2)
 
 On macOS the plugin uses its Rust core by default. Source builds require Cargo and Xcode Command Line Tools. The npm tarball built on a Mac includes the core executable and the native addon for that Mac's architecture.
 

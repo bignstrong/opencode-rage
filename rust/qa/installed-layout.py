@@ -33,16 +33,17 @@ def run(package, host, work, mode):
         env[f"XDG_{field}_HOME"] = str(path)
     cfg = home / "config/opencode"
     cfg.mkdir()
-    (cfg / "themes").mkdir()
-    shutil.copy(package / "assets/themes/rage-orng.json", cfg / "themes")
-    settings = dict(onboardingDone=True, setupSkipped=True, voiceAnimation=True,
-                    uiLanguage="en", downloadDir=str(work / "assets"))
-    state = home / "state/opencode/latest/tui/plugin.rage.settings.json"
-    state.parent.mkdir(parents=True)
-    state.write_text(json.dumps(settings))
+    theme = {"mode": "dark" if mode == "1" else "light"}
+    if mode == "0":
+        (cfg / "themes").mkdir()
+        shutil.copy(package / "assets/themes/rage-orng.json", cfg / "themes")
+        theme["name"] = "rage-orng"
+        state = home / "state/opencode/latest/tui/plugin.rage.settings.json"
+        state.parent.mkdir(parents=True)
+        state.write_text(json.dumps({"rageThemeApplied": True}))
     (cfg / "cli.json").write_text(json.dumps({
-        "plugins": [{"package": str(package), "options": settings}],
-        "theme": {"name": "orng" if mode == "1" else "rage-orng", "mode": "dark" if mode == "1" else "light"},
+        "plugins": [str(package)],
+        "theme": theme,
         "animations": True, "attention": {"sound": False, "notifications": False},
     }))
     release = threading.Event()
@@ -133,6 +134,13 @@ def run(package, host, work, mode):
             wait(f"orange moving {width}-cell spinner at {columns} columns", animated)
         release.set()
         wait("idle restoration", lambda: buttons() and not any(interrupt.search(line) for line in screen.display))
+        state = home / "state/opencode/latest/tui/plugin.rage.settings.json"
+        saved = json.loads(state.read_text())
+        assert all(saved.get(key) == value for key, value in dict(
+            rageThemeApplied=True, uiLanguage="ru", language="ru", orb="breath",
+            model="whisper-turbo", autoSubmit=False, recordingHotkey="", submitHotkey="").items()), saved
+        assert json.loads((cfg / "cli.json").read_text())["theme"] == {
+            "name": "orng" if mode == "1" else "rage-orng", "mode": theme["mode"]}
         print(f"OpenCode 2.4.1 RAGE_RUST={mode}: dock visible, commands hidden, moving frames at 100/72/44 columns, idle restored.")
     finally:
         release.set()
