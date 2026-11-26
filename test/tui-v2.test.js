@@ -362,6 +362,7 @@ async function mountVoice(
       store: (_key, { initial }) => {
         store = mockStore({
           ...initial,
+          rageThemeApplied: true,
           uiLanguage: "en",
           onboardingDone: true,
           setupSkipped: true,

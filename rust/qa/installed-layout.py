@@ -33,13 +33,9 @@ def run(package, host, work, mode):
         env[f"XDG_{field}_HOME"] = str(path)
     cfg = home / "config/opencode"
     cfg.mkdir()
-    settings = dict(onboardingDone=True, setupSkipped=True, voiceAnimation=True,
-                    uiLanguage="en", downloadDir=str(work / "assets"))
-    state = home / "state/opencode/latest/tui/plugin.rage.settings.json"
-    state.parent.mkdir(parents=True)
-    state.write_text(json.dumps(settings))
     (cfg / "cli.json").write_text(json.dumps({
-        "plugins": [{"package": str(package), "options": settings}],
+        "plugins": [str(package)],
+        "theme": {"mode": "dark" if mode == "1" else "light"},
         "animations": True, "attention": {"sound": False, "notifications": False},
     }))
     release = threading.Event()
@@ -108,23 +104,35 @@ def run(package, host, work, mode):
         wait("idle footer", buttons)
         assert not any("ctrl+p commands" in line for line in screen.display)
         os.write(fd, b"Layout probe\r")
+        wait("orange session prompt", lambda: any(
+            "┃" in line and "Build" in line and
+            all(screen.buffer[row][line.index(token)].fg == "ec5b2b" for token in ("┃", "Build"))
+            for row, line in enumerate(screen.display)) and any(interrupt.search(line) for line in screen.display))
         for columns, width in [(100, 15), (72, 9), (44, 3)]:
             resize(columns)
             seen = set()
 
             def animated():
-                for line in screen.display:
+                for row, line in enumerate(screen.display):
                     hint = interrupt.search(line)
                     if hint:
                         # At narrow widths the host clips the label and removes the gap.
                         for end in (hint.start(), hint.start() - 1):
-                            if end >= width and line[end - width // 2 - 1] in "·•●":
+                            center = end - width // 2 - 1
+                            if end >= width and line[center] in "·•●" and screen.buffer[row][center].fg == "ec5b2b":
                                 seen.add(line[end-width:end])
                 return len(seen) >= 2
 
-            wait(f"moving {width}-cell spinner at {columns} columns", animated)
+            wait(f"orange moving {width}-cell spinner at {columns} columns", animated)
         release.set()
         wait("idle restoration", lambda: buttons() and not any(interrupt.search(line) for line in screen.display))
+        state = home / "state/opencode/latest/tui/plugin.rage.settings.json"
+        saved = json.loads(state.read_text())
+        assert all(saved.get(key) == value for key, value in dict(
+            rageThemeApplied=True, uiLanguage="ru", language="ru", orb="breath",
+            model="whisper-turbo", autoSubmit=False, recordingHotkey="", submitHotkey="").items()), saved
+        assert json.loads((cfg / "cli.json").read_text())["theme"] == {
+            "name": "orng", "mode": "dark" if mode == "1" else "light"}
         print(f"OpenCode 2.4.1 RAGE_RUST={mode}: dock visible, commands hidden, moving frames at 100/72/44 columns, idle restored.")
     finally:
         release.set()

@@ -1,5 +1,11 @@
 # Rage changelog
 
+## 0.2.0
+
+- OpenCode V2 applies `orng` on first activation, retaining the selected theme mode. Later theme choices persist.
+- New profiles start with Russian menus and speech, Whisper Turbo, Digital breath, and draft-only dictation. No startup model picker.
+- The thinking orb uses the orng orange in animated and still modes.
+
 ## 0.1.1
 
 - `rage` starts the native CLI without Node on macOS, including npm symlink installs.

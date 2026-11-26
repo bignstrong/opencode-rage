@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin/tui";
-import type { Renderable, TextareaRenderable } from "@opentui/core";
+import { RGBA, type Renderable, type TextareaRenderable } from "@opentui/core";
 import { jsx } from "@opentui/solid/jsx-runtime";
 import { createComponent, createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { VoiceRuntime } from "../lib/engine.js";
@@ -9,6 +9,7 @@ import { DockedButtons } from "./button/dock.ts";
 import { installAgentActivity } from "./button/agent-activity.ts";
 import { orbCatalog, type ActivityMode } from "./button/activity.ts";
 import { resolveUiLanguage } from "./i18n.ts";
+import { applyRageTheme } from "./preset.ts";
 import { localizeDownloadStatus, ReportedDownloadError, type DownloadStatus } from "./ensure.ts";
 import {
   showError,
@@ -37,6 +38,12 @@ export default Plugin.define({
     const [store, updateStore] = ctx.storage.store("settings", {
       initial: {
         ...DEFAULT_SETTINGS,
+        uiLanguage: "ru",
+        language: "ru",
+        model: "whisper-turbo",
+        orb: "breath",
+        onboardingDone: true,
+        setupSkipped: true,
         ...optionsOverlay((ctx.options ?? {}) as Record<string, unknown>),
       },
     });
@@ -56,6 +63,21 @@ export default Plugin.define({
       ctx.ui.toast.show({ title: voiceTitle(), message, variant });
 
     const migration = migrateRecordingShortcut(getSettings(), ctx.options?.recordingHotkey);
+    if (!store.rageThemeApplied) {
+      try {
+        applyRageTheme();
+        await updateStore((draft) => {
+          draft.rageThemeApplied = true;
+        });
+      } catch {
+        notify(
+          getUiLanguage() === "ru"
+            ? "Не удалось включить тему orng. Проверьте cli.json."
+            : "Could not apply orng. Check cli.json.",
+          "warning",
+        );
+      }
+    }
     if (migration)
       await updateStore((draft) => {
         Object.assign(draft, migration);
@@ -348,13 +370,14 @@ export default Plugin.define({
         let anchor: Renderable;
         createEffect(() => {
           if (input.sessionID && ctx.data.session.status(input.sessionID) === "running") {
+            const orbColor = RGBA.fromHex("#ec5b2b");
             onCleanup(
               installAgentActivity({
                 version: ctx.app.version,
                 renderer: ctx.renderer,
                 anchor: () => anchor,
                 animate: getSettings().voiceAnimation,
-                foreground: () => ctx.theme.text.base,
+                foreground: () => orbColor,
                 orb: getOrb(),
               }),
             );
